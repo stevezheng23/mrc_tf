@@ -1,1 +1,4 @@
-# mrc_tf
+# Machine Reading Comprehension
+Machine reading comprehension (MRC), a task which asks machine to read a given context then answer questions based on its understanding, is considered one of the key problems in artificial intelligence and has significant interest from both academic and industry. Over the past few years, great progress has been made in this field, thanks to various end-to-end trained neural models and high quality datasets with large amount of examples proposed.
+<p align="center"><img src="/docs/squad.example.png" width=800></p>
+<p align="center"><i>Figure 1: MRC example from SQuAD 2.0 dev set</i></p>
