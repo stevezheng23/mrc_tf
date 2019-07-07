@@ -288,3 +288,77 @@ class XLNetTokenizer(object):
                       ids):
         """Convert ids to tokens for XLNet"""
         return [self.sp_processor.IdToPiece(id) for id in ids]
+
+class XLNetExampleConverter(object):
+    """Default example converter for XLNet"""
+    def __init__(self,
+                 max_seq_length,
+                 max_query_length,
+                 tokenizer):
+        """Construct XLNet example converter"""
+        self.special_vocab_list = ["<unk>", "<s>", "</s>", "<cls>", "<sep>", "<pad>", "<mask>", "<eod>", "<eop>"]
+        self.special_vocab_map = {}
+        for (i, special_vocab) in enumerate(self.special_vocab_list):
+            self.special_vocab_map[special_vocab] = i
+        
+        self.segment_vocab_list = ["<a>", "<b>", "<cls>", "<sep>", "<pad>"]
+        self.segment_vocab_map = {}
+        for (i, segment_vocab) in enumerate(self.segment_vocab_list):
+            self.segment_vocab_map[segment_vocab] = i
+                
+        self.max_seq_length = max_seq_length
+        self.max_query_length = max_query_length
+        self.tokenizer = tokenizer
+    
+    def convert_single_example(self,
+                               example,
+                               logging=False):
+        """Converts a single `InputExample` into a single `InputFeatures`."""
+        pass
+    
+    def convert_examples_to_features(self,
+                                     examples):
+        """Convert a set of `InputExample`s to a list of `InputFeatures`."""
+        features = []
+        for (idx, example) in enumerate(examples):
+            if idx % 1000 == 0:
+                tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
+
+            feature = self.convert_single_example(example, logging=(idx < 20))
+            features.append(feature)
+
+        return features
+    
+    def file_based_convert_examples_to_features(self,
+                                                examples,
+                                                output_file,
+                                                output_type="train"):
+        """Convert a set of `InputExample`s to a TFRecord file."""
+        def create_int_feature(values):
+            return tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
+        
+        def create_float_feature(values):
+            return tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
+        
+        with tf.python_io.TFRecordWriter(output_file) as writer:
+            for (idx, example) in enumerate(examples):
+                if idx % 1000 == 0:
+                    tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
+                
+                feature = convert_single_example(example, logging=(idx < 20))
+                
+                features = collections.OrderedDict()
+                features["unique_ids"] = create_int_feature([feature.unique_id])
+                features["input_ids"] = create_int_feature(feature.input_ids)
+                features["input_mask"] = create_float_feature(feature.input_mask)
+                features["p_mask"] = create_float_feature(feature.p_mask)
+                features["segment_ids"] = create_int_feature(feature.segment_ids)
+                features["cls_index"] = create_int_feature([feature.cls_index])
+                
+                if output_type == "train":
+                    features["start_positions"] = create_int_feature([feature.start_position])
+                    features["end_positions"] = create_int_feature([feature.end_position])
+                    features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
+                
+                tf_example = tf.train.Example(features=tf.train.Features(feature=features))
+                writer.write(tf_example.SerializeToString())
