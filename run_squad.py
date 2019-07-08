@@ -121,48 +121,36 @@ class InputExample(object):
             s += ", is_impossible: %r" % (self.is_impossible)
         return s
 
-class PaddingInputExample(object):
-    """Fake example so the num input examples is a multiple of the batch size.
-    
-    When running eval/predict on the TPU, we need to pad the number of examples
-    to be a multiple of the batch size, because the TPU requires a fixed batch
-    size. The alternative is to drop the last batch, which is bad because it means
-    the entire output data won't be generated.
-    
-    We use this class instead of `None` because treating `None` as padding
-    battches could cause silent errors.
-    """
-
 class InputFeatures(object):
     """A single set of features of data."""
     def __init__(self,
                  unique_id,
-                 example_index,
-                 doc_span_index,
-                 tok_start_to_orig_index,
-                 tok_end_to_orig_index,
-                 token_is_max_context,
+                 qas_id,
+                 doc_idx,
+                 token2char_raw_start_index,
+                 token2char_raw_end_index,
+                 token2doc_index,
                  input_ids,
                  input_mask,
                  p_mask,
                  segment_ids,
-                 paragraph_len,
                  cls_index,
+                 para_length,
                  start_position=None,
                  end_position=None,
                  is_impossible=None):
         self.unique_id = unique_id
-        self.example_index = example_index
-        self.doc_span_index = doc_span_index
-        self.tok_start_to_orig_index = tok_start_to_orig_index
-        self.tok_end_to_orig_index = tok_end_to_orig_index
-        self.token_is_max_context = token_is_max_context
+        self.qas_id = qas_id
+        self.doc_span_index = doc_idx
+        self.tok_start_to_orig_index = token2char_raw_start_index
+        self.tok_end_to_orig_index = token2char_raw_end_index
+        self.token_is_max_context = token2doc_index
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.p_mask = p_mask
         self.segment_ids = segment_ids
-        self.paragraph_len = paragraph_len
         self.cls_index = cls_index
+        self.paragraph_len = para_length
         self.start_position = start_position
         self.end_position = end_position
         self.is_impossible = is_impossible
@@ -311,6 +299,7 @@ class XLNetExampleConverter(object):
         self.max_query_length = max_query_length
         self.doc_stride = doc_stride
         self.tokenizer = tokenizer
+        self.unique_id = 1000000000
     
     def _generate_match_mapping(self,
                                 para_text,
@@ -320,18 +309,6 @@ class XLNetExampleConverter(object):
                                 max_N,
                                 max_M):
         """Generate match mapping for raw and tokenized paragraph"""
-        max_dist = abs(N - M) + 5
-        for _ in range(2):
-            f, g = _lcs_match(para_text, tokenized_para_text, N, M, max_N, max_M, max_dist)
-            
-            if f[N - 1, M - 1] > 0.8 * N:
-                break
-            
-            max_dist *= 2
-        
-        mismatch = f[N - 1, M - 1] < 0.8 * N
-        return g, mismatch
-        
         def _lcs_match(para_text,
                        tokenized_para_text,
                        N,
@@ -371,6 +348,18 @@ class XLNetExampleConverter(object):
                         f[i, j] = f_prev + 1
             
             return f, g
+        
+        max_dist = abs(N - M) + 5
+        for _ in range(2):
+            lcs_matrix, match_mapping = _lcs_match(para_text, tokenized_para_text, N, M, max_N, max_M, max_dist)
+            
+            if lcs_matrix[N - 1, M - 1] > 0.8 * N:
+                break
+            
+            max_dist *= 2
+        
+        mismatch = lcs_matrix[N - 1, M - 1] < 0.8 * N
+        return match_mapping, mismatch
     
     def _convert_tokenized_index(self,
                                  index,
@@ -461,15 +450,11 @@ class XLNetExampleConverter(object):
         
         return best_doc_idx
     
-    def convert_single_example(self,
-                               example,
-                               is_training=True,
-                               logging=False):
+    def convert_squad_example(self,
+                              example,
+                              is_training=True,
+                              logging=False):
         """Converts a single `InputExample` into a single `InputFeatures`."""
-        default_feature = None
-        if isinstance(example, PaddingInputExample):
-            return default_feature
-        
         query_tokens = self.tokenizer.tokenize(example.question_text)
         if len(query_tokens) > self.max_query_length:
             query_tokens = query_tokens[:self.max_query_length]
@@ -496,32 +481,32 @@ class XLNetExampleConverter(object):
             max_N = max(N, max_N)
             max_M = max(M, max_M)
         
-        g, mismatch = self._generate_match_mapping(para_text, tokenized_para_text, max_N, max_M)
+        match_mapping, mismatch = self._generate_match_mapping(para_text, tokenized_para_text, max_N, max_M)
         
         raw2tokenized_char_index = [None] * N
         tokenized2raw_char_index = [None] * M
         i, j = N-1, M-1
         while i >= 0 and j >= 0:
-            if (i, j) not in g:
+            if (i, j) not in match_mapping:
                 break
             
-            if g[(i, j)] == 2:
+            if match_mapping[(i, j)] == 2:
                 raw2tokenized_char_index[i] = j
                 tokenized2raw_char_index[j] = i
                 i, j = i - 1, j - 1
-            elif g[(i, j)] == 1:
+            elif match_mapping[(i, j)] == 1:
                 j = j - 1
             else:
                 i = i - 1
         
         if all(v is None for v in raw2tokenized_char_index) or mismatch:
-            tf.logging.warning("raw and tokenized paragraph mismatch detected for example: %s" % example.guid)
+            tf.logging.warning("raw and tokenized paragraph mismatch detected for example: %s" % example.qas_id)
         
         token2char_raw_start_index = []
         token2char_raw_end_index = []
-        for i in range(len(para_tokens)):
-            start_pos = token2char_start_index[i]
-            end_pos = token2char_end_index[i]
+        for idx in range(len(para_tokens)):
+            start_pos = token2char_start_index[idx]
+            end_pos = token2char_end_index[idx]
             raw_start_pos = self._convert_tokenized_index(tokenized2raw_char_index, start_pos, N, is_start=True)
             raw_end_pos = self._convert_tokenized_index(tokenized2raw_char_index, end_pos, N, is_start=False)
             token2char_raw_start_index.append(raw_start_pos)
@@ -565,13 +550,14 @@ class XLNetExampleConverter(object):
             
             para_start += min(para_length, self.doc_stride)
         
+        feature_list = []
         for (doc_idx, doc_span) in enumerate(doc_spans):
             input_tokens = []
             segment_ids = []
             p_mask = []
             doc_token2char_raw_start_index = []
             doc_token2char_raw_end_index = []
-            token_is_max_context = {}
+            doc_token2doc_index = {}
             
             for i in range(doc_span["length"]):
                 token_idx = doc_span["start"] + i
@@ -584,9 +570,9 @@ class XLNetExampleConverter(object):
                 doc_token2char_raw_end_index.append(token2char_raw_end_index[token_idx])
 
                 best_doc_idx = self._find_max_context(doc_spans, token_idx)
-                token_is_max_context[len(input_tokens)] = (best_doc_idx == doc_idx)
+                doc_token2doc_index[len(input_tokens)] = (best_doc_idx == doc_idx)
             
-            paragraph_len = len(input_tokens)
+            doc_para_length = len(input_tokens)
             
             input_tokens.append("<sep>")
             segment_ids.append(self.segment_vocab_map["<p>"])
@@ -624,23 +610,80 @@ class XLNetExampleConverter(object):
             assert len(input_mask) == self.max_seq_length
             assert len(segment_ids) == self.max_seq_length
             assert len(p_mask) == self.max_seq_length
+            
+            is_impossible = example.is_impossible
+            start_position = None
+            end_position = None
+            if is_training:
+                if not is_impossible:
+                    # For training, if our document chunk does not contain an annotation, set default values.
+                    doc_start = doc_span["start"]
+                    doc_end = doc_start + doc_span["length"] - 1
+                    if tokenized_start_token_pos < doc_start or tokenized_end_token_pos > doc_end:
+                        start_position = 0
+                        end_position = 0
+                        is_impossible = True
+                    else:
+                        start_position = tokenized_start_token_pos - doc_start
+                        end_position = tokenized_end_token_pos - doc_start
+                else:
+                    start_position = cls_index
+                    end_position = cls_index
+            
+            if logging:
+                tf.logging.info("*** Example ***")
+                tf.logging.info("unique_id: %s" % str(self.unique_id))
+                tf.logging.info("qas_id: %s" % example.qas_id)
+                tf.logging.info("doc_idx: %s" % str(doc_idx))
+                tf.logging.info("doc_token2char_raw_start_index: %s" % " ".join([str(x) for x in doc_token2char_raw_start_index]))
+                tf.logging.info("doc_token2char_raw_end_index: %s" % " ".join([str(x) for x in doc_token2char_raw_end_index]))
+                tf.logging.info("doc_token2doc_index: %s" % " ".join(["%d:%s" % (x, y) for (x, y) in doc_token2doc_index.items()]))
+                tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+                tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+                tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+                tf.logging.info("p_mask: %s" % " ".join([str(x) for x in p_mask]))
+                if is_training:
+                    if not is_impossible:
+                        tf.logging.info("start_position: %d" % str(start_position))
+                        tf.logging.info("end_position: %d" % str(end_position))
+                        answer_text = prepro_utils.printable_text("".join(input_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
+                        tf.logging.info("answer_text: %s" % answer_text)
+                    else:
+                        tf.logging.info("impossible example")
+                
+            feature = InputFeatures(
+                unique_id=self.unique_id,
+                qas_id=example.qas_id,
+                doc_idx=doc_idx,
+                token2char_raw_start_index=doc_token2char_raw_start_index,
+                token2char_raw_end_index=doc_token2char_raw_end_index,
+                token2doc_index=doc_token2doc_index,
+                input_ids=input_ids,
+                input_mask=input_mask,
+                p_mask=p_mask,
+                segment_ids=segment_ids,
+                cls_index=cls_index,
+                para_length=doc_para_length,
+                start_position=start_position,
+                end_position=end_position,
+                is_impossible=is_impossible)
+            
+            feature_list.append(feature)
+            self.unique_id += 1
         
-        ## =====
-        ## TODO
-        ## =====
-        
-        return default_feature
+        return feature_list
     
     def convert_examples_to_features(self,
-                                     examples):
+                                     examples,
+                                     is_training=True):
         """Convert a set of `InputExample`s to a list of `InputFeatures`."""
         features = []
         for (idx, example) in enumerate(examples):
             if idx % 1000 == 0:
-                tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
+                tf.logging.info("Coverting example %d of %d" % (idx, len(examples)))
 
-            feature = self.convert_single_example(example, logging=(idx < 20))
-            features.append(feature)
+            feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
+            features.extend(feature_list)
 
         return features
     
@@ -658,22 +701,23 @@ class XLNetExampleConverter(object):
         with tf.python_io.TFRecordWriter(output_file) as writer:
             for (idx, example) in enumerate(examples):
                 if idx % 1000 == 0:
-                    tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
+                    tf.logging.info("Coverting example %d of %d" % (idx, len(examples)))
                 
-                feature = convert_single_example(example, logging=(idx < 20))
+                feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
                 
-                features = collections.OrderedDict()
-                features["unique_ids"] = create_int_feature([feature.unique_id])
-                features["input_ids"] = create_int_feature(feature.input_ids)
-                features["input_mask"] = create_float_feature(feature.input_mask)
-                features["p_mask"] = create_float_feature(feature.p_mask)
-                features["segment_ids"] = create_int_feature(feature.segment_ids)
-                features["cls_index"] = create_int_feature([feature.cls_index])
-                
-                if is_training == True:
-                    features["start_positions"] = create_int_feature([feature.start_position])
-                    features["end_positions"] = create_int_feature([feature.end_position])
-                    features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
-                
-                tf_example = tf.train.Example(features=tf.train.Features(feature=features))
-                writer.write(tf_example.SerializeToString())
+                for feature in feature_list:
+                    features = collections.OrderedDict()
+                    features["unique_ids"] = create_int_feature([feature.unique_id])
+                    features["input_ids"] = create_int_feature(feature.input_ids)
+                    features["input_mask"] = create_float_feature(feature.input_mask)
+                    features["p_mask"] = create_float_feature(feature.p_mask)
+                    features["segment_ids"] = create_int_feature(feature.segment_ids)
+                    features["cls_index"] = create_int_feature([feature.cls_index])
+
+                    if is_training == True:
+                        features["start_positions"] = create_int_feature([feature.start_position])
+                        features["end_positions"] = create_int_feature([feature.end_position])
+                        features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
+
+                    tf_example = tf.train.Example(features=tf.train.Features(feature=features))
+                    writer.write(tf_example.SerializeToString())
