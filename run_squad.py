@@ -675,22 +675,8 @@ class XLNetExampleConverter(object):
     
     def convert_examples_to_features(self,
                                      examples,
+                                     output_file,
                                      is_training=True):
-        """Convert a set of `InputExample`s to a list of `InputFeatures`."""
-        features = []
-        for (idx, example) in enumerate(examples):
-            if idx % 1000 == 0:
-                tf.logging.info("Coverting example %d of %d" % (idx, len(examples)))
-
-            feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
-            features.extend(feature_list)
-
-        return features
-    
-    def file_based_convert_examples_to_features(self,
-                                                examples,
-                                                output_file,
-                                                is_training=True):
         """Convert a set of `InputExample`s to a TFRecord file."""
         def create_int_feature(values):
             return tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
@@ -721,3 +707,81 @@ class XLNetExampleConverter(object):
 
                     tf_example = tf.train.Example(features=tf.train.Features(feature=features))
                     writer.write(tf_example.SerializeToString())
+
+class XLNetInputBuilder(object):
+    """Default input builder for XLNet"""
+    @staticmethod
+    def get_input_fn(input_file,
+                     seq_length,
+                     is_training,
+                     drop_remainder,
+                     shuffle_buffer,
+                     num_threads):
+        """Creates an `input_fn` closure to be passed to TPUEstimator."""
+        name_to_features = {
+            "unique_ids": tf.FixedLenFeature([], tf.int64),
+            "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
+            "input_mask": tf.FixedLenFeature([seq_length], tf.float32),
+            "p_mask": tf.FixedLenFeature([seq_length], tf.float32),
+            "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
+            "cls_index": tf.FixedLenFeature([], tf.int64),
+        }
+        
+        if is_training:
+            name_to_features["start_positions"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["end_positions"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["is_impossible"] = tf.FixedLenFeature([], tf.float32)
+        
+        def _decode_record(record,
+                           name_to_features):
+            """Decodes a record to a TensorFlow example."""
+            example = tf.parse_single_example(record, name_to_features)
+            
+            # tf.Example only supports tf.int64, but the TPU only supports tf.int32. So cast all int64 to int32.
+            for name in list(example.keys()):
+                t = example[name]
+                if t.dtype == tf.int64:
+                    t = tf.to_int32(t)
+                example[name] = t
+
+            return example
+        
+        def input_fn(params):
+            """The actual input function."""
+            batch_size = params["batch_size"]
+            
+            # For training, we want a lot of parallel reading and shuffling.
+            # For eval, we want no shuffling and parallel reading doesn't matter.
+            d = tf.data.TFRecordDataset(input_file)
+            
+            if is_training:
+                d = d.repeat()
+                d = d.shuffle(buffer_size=shuffle_buffer, seed=np.random.randint(10000))
+            
+            d = d.apply(tf.contrib.data.map_and_batch(
+                lambda record: _decode_record(record, name_to_features),
+                batch_size=batch_size,
+                num_parallel_batches=num_threads,
+                drop_remainder=drop_remainder))
+            
+            return d.prefetch(1024)
+        
+        return input_fn
+    
+    @staticmethod
+    def get_serving_input_fn(seq_length):
+        """Creates an `input_fn` closure to be passed to TPUEstimator."""
+        def serving_input_fn():
+            with tf.variable_scope("serving"):
+                features = {
+                    'unique_ids': tf.placeholder(tf.int32, [None], name='unique_ids'),
+                    'input_ids': tf.placeholder(tf.int32, [None, seq_length], name='input_ids'),
+                    'input_mask': tf.placeholder(tf.float32, [None, seq_length], name='input_mask'),
+                    'p_mask': tf.placeholder(tf.float32, [None, seq_length], name='p_mask'),
+                    'segment_ids': tf.placeholder(tf.int32, [None, seq_length], name='segment_ids')
+                    'cls_index': tf.placeholder(tf.int32, [None], name='cls_index'),
+                }
+                
+                return tf.estimator.export.build_raw_serving_input_receiver_fn(features)()
+        
+        return serving_input_fn
