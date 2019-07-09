@@ -32,14 +32,11 @@ flags.DEFINE_string("train_file", default="", help="Path of train file.")
 flags.DEFINE_string("predict_file", default="", help="Path of prediction file.")
 flags.DEFINE_bool("overwrite_data", default=False, help="If False, will use cached data if available.")
 
+flags.DEFINE_bool("do_prepro", default=False, help="Whether to run preprocessing.")
 flags.DEFINE_bool("do_train", default=False, help="Whether to run training.")
 flags.DEFINE_bool("do_eval", default=False, help="Whether to run evaluation.")
 flags.DEFINE_bool("do_predict", default=False, help="Whether to run prediction.")
 flags.DEFINE_bool("do_export", default=False, help="Whether to run exporting.")
-
-flags.DEFINE_bool("do_prepro", default=False, help="Perform preprocessing only.")
-flags.DEFINE_integer("num_proc", default=1, help="Number of preprocessing processes.")
-flags.DEFINE_integer("proc_id", default=0, help="Process id for preprocessing.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
@@ -685,6 +682,8 @@ class XLNetExampleConverter(object):
             return tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
         
         with tf.python_io.TFRecordWriter(output_file) as writer:
+            np.random.shuffle(examples)
+            
             for (idx, example) in enumerate(examples):
                 if idx % 1000 == 0:
                     tf.logging.info("Coverting example %d of %d" % (idx, len(examples)))
@@ -785,3 +784,79 @@ class XLNetInputBuilder(object):
                 return tf.estimator.export.build_raw_serving_input_receiver_fn(features)()
         
         return serving_input_fn
+
+class XLNetModelBuilder(object):
+    """Default model builder for XLNet"""
+    def __init__(self,
+                 default_model_config,
+                 default_run_config,
+                 default_init_checkpoint,
+                 use_tpu=False):
+        """Construct XLNet model builder"""
+        self.default_model_config = default_model_config
+        self.default_run_config = default_run_config
+        self.default_init_checkpoint = default_init_checkpoint
+        self.use_tpu = use_tpu
+    
+    def _create_model(self,
+                      model_config,
+                      run_config,
+                      is_training,
+                      input_ids,
+                      input_mask,
+                      p_mask,
+                      segment_ids,
+                      start_positions=None,
+                      end_positions=None,
+                      is_impossible=None):
+        """Creates XLNet-MRC model"""
+        pass
+    
+    def get_model_fn(self,
+                     model_config,
+                     run_config,
+                     init_checkpoint):
+        """Returns `model_fn` closure for TPUEstimator."""
+        def model_fn(features,
+                     labels,
+                     mode,
+                     params):  # pylint: disable=unused-argument
+            """The `model_fn` for TPUEstimator."""
+            tf.logging.info("*** Features ***")
+            for name in sorted(features.keys()):
+                tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
+            
+            is_training = (mode == tf.estimator.ModeKeys.TRAIN)
+            
+            input_ids = features["input_ids"]
+            input_mask = features["input_mask"]
+            p_mask = features["p_mask"]
+            segment_ids = features["segment_ids"]
+            cls_index = features["cls_index"]
+            if is_training:
+                start_positions = features["start_positions"]
+                end_positions = features["end_positions"]
+                is_impossible = features["is_impossible"]
+
+            loss, predicts = self._create_model(model_config, run_config, is_training,
+                input_ids, input_mask, p_mask, segment_ids, cls_index, start_positions, end_positions, is_impossible)
+            
+            scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
+            
+            output_spec = None
+            if mode == tf.estimator.ModeKeys.TRAIN:
+                train_op, _, _ = model_utils.get_train_op(FLAGS, loss)
+                output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+                    mode=mode,
+                    loss=loss,
+                    train_op=train_op,
+                    scaffold_fn=scaffold_fn)
+            else:
+                output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+                    mode=mode,
+                    predictions={ "predicts": predicts },
+                    scaffold_fn=scaffold_fn)
+            
+            return output_spec
+        
+        return model_fn
