@@ -174,13 +174,6 @@ class SquadProcessor(object):
         example_list = self._get_example(data_list)
         return example_list
     
-    def get_test_examples(self):
-        """Gets a collection of `InputExample`s for the test set."""
-        data_path = os.path.join(self.data_dir, "test-{0}".format(self.task_name), "test-{0}.json".format(self.task_name))
-        data_list = self._read_json(data_path)
-        example_list = self._get_example(data_list)
-        return example_list
-    
     def _read_json(self,
                    data_path):
         if os.path.exists(data_path):
@@ -841,98 +834,141 @@ class XLNetModelBuilder(object):
                       end_positions=None,
                       is_impossible=None):
         """Creates XLNet-MRC model"""
-        input_ids = tf.transpose(input_ids, perm=[1,0])                                                                          # [b,l]
-        input_mask = tf.transpose(input_mask, perm=[1,0])                                                                        # [b,l]
-        p_mask = tf.transpose(p_mask, perm=[1,0])                                                                                # [b,l]
-        segment_ids = tf.transpose(segment_ids, perm=[1,0])                                                                      # [b,l]
-        cls_index = tf.transpose(cls_index, perm=[1,0])                                                                          # [b,1]
-        
         model = xlnet.XLNetModel(
             xlnet_config=model_config,
             run_config=run_config,
-            input_ids=input_ids,
-            input_mask=input_mask,
-            seg_ids=segment_ids)
+            input_ids=tf.transpose(input_ids, perm=[1,0]),                                                               # [b,l] --> [l,b]
+            input_mask=tf.transpose(input_mask, perm=[1,0]),                                                             # [b,l] --> [l,b]
+            seg_ids=tf.transpose(segment_ids, perm=[1,0]))                                                               # [b,l] --> [l,b]
         
         initializer = model.get_initializer()
         seq_len = tf.shape(input_ids)[-1]
-        output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                                  # [b,l,h]
+        output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                      # [l,b,h] --> [b,l,h]
         
+        predicts = {}
         with tf.variable_scope("mrc", reuse=tf.AUTO_REUSE):
             with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
                 start_result = output_result                                                                                     # [b,l,h]
-                start_result_mask = tf.cast(tf.expand_dims(1 - p_mask, axis=-1), dtype=tf.float32)                               # [b,l,1]
+                start_result_mask = 1 - p_mask                                                                                     # [b,l]
                 
-                start_project_layer = tf.keras.layers.Dense(units=1, activation=None, use_bias=True,
-                    kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="start_project_layer")
-                start_result = start_project_layer(start_result)                                                     # [b,l,h] --> [b,l,1]
-            
-                start_result = self._generate_masked_data(start_result, start_result_mask)                  # [b,l,1], [b,l,1] --> [b,l,1]
-                start_prob = tf.nn.softmax(start_result, axis=-1)                                                                # [b,l,1]
+                start_result = tf.layers.dense(start_result, units=1, activation=None,
+                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="start_project")            # [b,l,h] --> [b,l,1]
+                
+                start_result = tf.squeeze(start_result, axis=-1)                                                       # [b,l,1] --> [b,l]
+                start_result = self._generate_masked_data(start_result, start_result_mask)                        # [b,l], [b,l] --> [b,l]
+                start_prob = tf.nn.softmax(start_result, axis=-1)                                                                  # [b,l]
+                
+                if not is_training:
+                    start_top_prob, start_top_index = tf.nn.top_k(start_prob, k=FLAGS.start_n_top)                # [b,l] --> [b,k], [b,k]
+                    predicts["start_prob"] = start_top_prob
+                    predicts["start_index"] = start_top_index
             
             with tf.variable_scope("end", reuse=tf.AUTO_REUSE):
-                start_pos = tf.argmax(tf.squeeze(start_prob, axis=-1), axis=-1)                                      # [b,l,1] --> [b,1]
-                start_pos = self._generate_onehot_label(start_pos, seq_len)                                            # [b,1] --> [b,1,l]
-                cond_result = tf.matmul(start_pos, output_result)                                           # [b,1,l], [b,l,h] --> [b,1,h]
-                cond_result = tf.tile(cond_result, multiples=[1,seq_len,1])                                          # [b,1,h] --> [b,l,h]
-                
-                end_result = tf.concat([output_result, cond_result], axis=-1)                               # [b,l,h], [b,l,h] --> [b,l,2h]
-                end_result_mask = tf.cast(tf.expand_dims(1 - p_mask, axis=-1), dtype=tf.float32)                                 # [b,l,1]
-                
-                end_project_layer = tf.keras.layers.Dense(units=1, activation=None, use_bias=True,
-                    kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project_layer") 
-                end_result = end_project_layer(end_result)                                                          # [b,l,2h] --> [b,l,1]
-            
-                end_result = self._generate_masked_data(end_result, end_result_mask)                        # [b,l,1], [b,l,1] --> [b,l,1]
-                end_prob = tf.nn.softmax(end_result, axis=-1)                                                                    # [b,l,1]
+                if is_training:
+                    # During training, compute the end logits based on the ground truth of the start position
+                    start_index = self._generate_onehot_label(start_positions, seq_len)                                # [b,1] --> [b,1,l]
+                    feat_result = tf.matmul(start_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
+                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1])                                      # [b,1,h] --> [b,l,h]
+                    
+                    end_result = tf.concat([output_result, feat_result], axis=-1)                          # [b,l,h], [b,l,h] --> [b,l,2h]
+                    end_result_mask = 1 - p_mask                                                                                   # [b,l]
+                    
+                    end_result = tf.layers.dense(end_result, units=model_config.d_model, activation=tf.tanh,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
+                    
+                    end_result = tf.layers.dropout(end_result,
+                        rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                     # [b,l,h] --> [b,l,h]
+                    
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
+                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)                # [b,l,h] --> [b,l,h]
+                    
+                    end_result = tf.layers.dense(end_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")          # [b,l,h] --> [b,l,1]
+                    
+                    end_result = tf.squeeze(end_result, axis=-1)                                                       # [b,l,1] --> [b,l]
+                    end_result = self._generate_masked_data(end_result, end_result_mask)                          # [b,l], [b,l] --> [b,l]
+                    end_prob = tf.nn.softmax(end_result, axis=-1)                                                                  # [b,l]
+                else:
+                    # During inference, compute the end logits based on beam search
+                    start_index = self._generate_onehot_label(start_top_index, seq_len)                                # [b,k] --> [b,k,l]
+                    feat_result = tf.matmul(start_index, output_result)                                     # [b,k,l], [b,l,h] --> [b,k,h]
+                    feat_result = tf.expand_dims(feat_result, axis=1)                                              # [b,k,h] --> [b,1,k,h]
+                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1,1])                                # [b,1,k,h] --> [b,l,k,h]
+                    
+                    end_result = tf.expand_dims(output_result, axis=-2)                                            # [b,l,h] --> [b,l,1,h]
+                    end_result = tf.tile(end_result, multiples=[1,1,FLAGS.start_n_top,1])                        # [b,l,1,h] --> [b,l,k,h]
+                    end_result = tf.concat([end_result, feat_result], axis=-1)                       # [b,l,k,h], [b,l,k,h] --> [b,l,k,2h]
+                    end_result_mask = tf.expand_dims(1 - p_mask, axis=1)                                               # [b,l] --> [b,1,l]
+                    end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
+                    
+                    end_result = tf.layers.dense(end_result, units=model_config.d_model, activation=tf.tanh,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
+                    
+                    end_result = tf.layers.dropout(end_result,
+                        rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                 # [b,l,k,h] --> [b,l,k,h]
+                    
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
+                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
+                    
+                    end_result = tf. = tf.layers.dense(end_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,k,h] --> [b,l,k,1]
+                    
+                    end_result = tf.transpose(tf.squeeze(end_result, axis=-1), perm=[0,2,1])                       # [b,l,k,1] --> [b,k,l]
+                    end_result = self._generate_masked_data(end_result, end_result_mask)                    # [b,k,l], [b,k,l] --> [b,k,l]
+                    end_prob = tf.nn.softmax(end_result, axis=-1)                                                                # [b,k,l]
+                    
+                    end_top_prob, end_top_index = tf.nn.top_k(end_prob, k=FLAGS.end_n_top)                  # [b,k,l] --> [b,k,k], [b,k,k]
+                    predicts["end_prob"] = end_top_prob
+                    predicts["end_index"] = end_top_index
             
             with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
-                cls_index = self._generate_onehot_label(cls_index, seq_len)                                                      # [b,1,l]
-                cls_result = tf.matmul(cls_index, output_result)                                            # [b,1,l], [b,l,h] --> [b,1,h]
-                cond_result = tf.matmul(start_prob, output_result, transpose_a=True)                        # [b,l,1], [b,l,h] --> [b,1,h]
+                cls_index = self._generate_onehot_label(cls_index, seq_len)                                            # [b,1] --> [b,1,l]
+                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
                 
-                answer_result = tf.squeeze(tf.concat([cls_result, cond_result], axis=-1), axis=1)           # [b,1,h], [b,1,h] --> [b,2h]
-                answer_result_mask = tf.cast(tf.reduce_max(1 - p_mask, axis=-1, keepdims=True), dtype=tf.float32)                # [b,1]
+                answer_result = tf.matmul(cls_index, output_result)                                         # [b,1,l], [b,l,h] --> [b,1,h]
+                answer_result = tf.squeeze(tf.concat([answer_result, feat_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
+                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,1] --> [b]
                 
-                answer_model_layer = tf.layers.Dense(units=model_config.d_model, activation=None, use_bias=False,
-                    kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_model_layer")
-                answer_result = answer_model_layer(answer_result)                                                                # [b,h]
+                answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=None,
+                    use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
                 
-                if is_training:
-                    answer_dropout_layer = tf.keras.layers.Dropout(rate=FLAGS.dropout, seed=np.random.randint(10000))
-                    answer_result = answer_dropout_layer(answer_result)                                                          # [b,h]
+                answer_result = tf.layers.dropout(answer_result,
+                    rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                answer_project_layer = tf.keras.layers.Dense(units=1, activation=None, use_bias=False,
-                    kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project_layer")
-                answer_result = answer_project_layer(answer_result)                                                              # [b,1]
+                answer_result = tf.layers.dense(answer_result, units=1, activation=None,
+                    use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,1]
                 
-                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                   # [b,1], [b,1] --> [b,1]
-                answer_prob = tf.sigmoid(answer_result)                                                                          # [b,1]
+                answer_result = tf.squeeze(answer_result, axis=-1)                                                         # [b,1] --> [b]
+                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                           # [b], [b] --> [b]
+                answer_prob = tf.sigmoid(answer_result)                                                                              # [b]
+                predicts["answer_prob"] = answer_prob
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
                 if is_training:
-                    if start_positions is not None and end_positions is not None:
-                        start_label = start_positions                                                                            # [b,1]
-                        start_label_mask = tf.cast(tf.reduce_max(1 - p_mask, axis=-1, keepdims=True), dtype=tf.float32)          # [b,1]
-                        start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)          # [b,1]
-                        end_label = end_positions                                                                                # [b,1]
-                        end_label_mask = tf.cast(tf.reduce_max(1 - p_mask, axis=-1, keepdims=True), dtype=tf.float32)            # [b,1]
-                        end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                    # [b,1]
-                        loss += tf.reduce_mean(start_loss + end_loss) * 0.5
+                    start_label = tf.squeeze(start_positions, axis=-1)                                                     # [b,1] --> [b]
+                    start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,1] --> [b]
+                    start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
+                    end_label = tf.squeeze(end_positions, axis=-1)                                                         # [b,1] --> [b]
+                    end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,1] --> [b]
+                    end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
+                    loss += tf.reduce_mean(start_loss + end_loss) * 0.5
                     
                     if is_impossible is not None:
-                        answer_label = is_impossible                                                                             # [b,1]
-                        answer_label_mask = tf.cast(tf.reduce_max(1 - p_mask, axis=-1, keepdims=True), dtype=tf.float32)         # [b,1]
-                        masked_answer_label = tf.cast(answer_label, dtype=tf.int32) * tf.cast(answer_label_mask, dtype=tf.int32) # [b,1]
-                        answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=masked_answer_label, logits=answer_result)  # [b,1]
+                        answer_label = tf.squeeze(is_impossible, axis=-1)                                                  # [b,1] --> [b]
+                        answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,1] --> [b]
+                        answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+                            labels=answer_label * answer_label_mask, logits=answer_result)                                           # [b]
                         loss += tf.reduce_mean(answer_loss) * 0.5
         
-        return loss, start_prob, end_prob, answer_prob
+        return loss, predicts
     
     def get_model_fn(self,
                      model_config,
@@ -950,6 +986,7 @@ class XLNetModelBuilder(object):
             
             is_training = (mode == tf.estimator.ModeKeys.TRAIN)
             
+            unique_ids = features["unique_ids"]
             input_ids = features["input_ids"]
             input_mask = features["input_mask"]
             p_mask = features["p_mask"]
@@ -965,7 +1002,7 @@ class XLNetModelBuilder(object):
                 end_positions = None
                 is_impossible = None
 
-            loss, start_prob, end_prob, answer_prob = self._create_model(model_config, run_config, is_training,
+            loss, predicts = self._create_model(model_config, run_config, is_training,
                 input_ids, input_mask, p_mask, segment_ids, cls_index, start_positions, end_positions, is_impossible)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
@@ -982,12 +1019,28 @@ class XLNetModelBuilder(object):
                 output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                     mode=mode,
                     predictions={
-                        "start_prob": start_prob
-                        "end_prob": end_prob
-                        "answer_prob": answer_prob
+                        "unique_ids": unique_ids,
+                        "answer_prob": predicts["answer_prob"],
+                        "start_prob": predicts["start_prob"],
+                        "start_index": predicts["start_index"],
+                        "end_prob": predicts["end_prob"],
+                        "end_index": predicts["end_index"]
                     },
                     scaffold_fn=scaffold_fn)
             
             return output_spec
         
         return model_fn
+
+def main(_):
+    pass
+
+if __name__ == "__main__":
+    flags.mark_flag_as_required("spiece_model_file")
+    flags.mark_flag_as_required("model_config_path")
+    flags.mark_flag_as_required("init_checkpoint")
+    flags.mark_flag_as_required("data_dir")
+    flags.mark_flag_as_required("output_dir")
+    flags.mark_flag_as_required("model_dir")
+    flags.mark_flag_as_required("export_dir")
+    tf.app.run()
