@@ -21,22 +21,27 @@ import squad_utils
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string("data_dir", None, "Data directory where raw data located.")
+flags.DEFINE_string("output_dir", None, "Output directory where processed data located.")
+flags.DEFINE_string("model_dir", None, "Model directory where checkpoints located.")
+flags.DEFINE_string("export_dir", None, "Export directory where saved model located.")
+
 flags.DEFINE_string("task_name", default=None, help="The name of the task to train.")
 flags.DEFINE_string("model_config_path", default=None, help="Config file of the pre-trained model.")
 flags.DEFINE_string("init_checkpoint", default=None, help="Initial checkpoint of the pre-trained model.")
 flags.DEFINE_string("spiece_model_file", default="", help="Sentence Piece model path.")
-flags.DEFINE_string("model_dir", default="", help="Directory for saving the finetuned model.")
-flags.DEFINE_string("predict_dir", default="", help="Dir for predictions.")
-flags.DEFINE_string("output_dir", default="", help="Output dir for TF records.")
-flags.DEFINE_string("train_file", default="", help="Path of train file.")
-flags.DEFINE_string("predict_file", default="", help="Path of prediction file.")
 flags.DEFINE_bool("overwrite_data", default=False, help="If False, will use cached data if available.")
+flags.DEFINE_integer("random_seed", default=100, help="Random seed for weight initialzation.")
 
-flags.DEFINE_bool("do_prepro", default=False, help="Whether to run preprocessing.")
 flags.DEFINE_bool("do_train", default=False, help="Whether to run training.")
 flags.DEFINE_bool("do_eval", default=False, help="Whether to run evaluation.")
 flags.DEFINE_bool("do_predict", default=False, help="Whether to run prediction.")
 flags.DEFINE_bool("do_export", default=False, help="Whether to run exporting.")
+
+flags.DEFINE_enum("init", default="normal", enum_values=["normal", "uniform"], help="Initialization method.")
+flags.DEFINE_float("init_std", default=0.02, help="Initialization std when init is normal.")
+flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init is uniform.")
+flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
@@ -46,11 +51,6 @@ flags.DEFINE_integer("max_answer_length", default=64, help="Max answer length")
 flags.DEFINE_integer("train_batch_size", default=48, help="Total batch size for training.")
 flags.DEFINE_integer("eval_batch_size", default=32, help="Total batch size for eval.")
 flags.DEFINE_integer("predict_batch_size", default=32, help="Total batch size for predict.")
-
-flags.DEFINE_enum("init", default="normal", enum_values=["normal", "uniform"], help="Initialization method.")
-flags.DEFINE_float("init_std", default=0.02, help="Initialization std when init is normal.")
-flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init is uniform.")
-flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_integer("train_steps", default=8000, help="Number of training steps")
 flags.DEFINE_integer("warmup_steps", default=0, help="number of warmup steps")
@@ -162,14 +162,14 @@ class SquadProcessor(object):
     
     def get_train_examples(self):
         """Gets a collection of `InputExample`s for the train set."""
-        data_path = os.path.join(self.data_dir, "train-{0}".format(self.task_name), "train-{0}.json".format(self.task_name))
+        data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
         return example_list
     
     def get_dev_examples(self):
         """Gets a collection of `InputExample`s for the dev set."""
-        data_path = os.path.join(self.data_dir, "dev-{0}".format(self.task_name), "dev-{0}.json".format(self.task_name))
+        data_path = os.path.join(self.data_dir, "dev-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
         return example_list
@@ -666,13 +666,17 @@ class XLNetExampleConverter(object):
     def convert_examples_to_features(self,
                                      examples,
                                      output_file,
-                                     is_training=True):
+                                     is_training=True,
+                                     overwrite_data=False):
         """Convert a set of `InputExample`s to a TFRecord file."""
         def create_int_feature(values):
             return tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
         
         def create_float_feature(values):
             return tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
+        
+        if os.path.exists(output_file) and not overwrite_data:
+            return
         
         with tf.python_io.TFRecordWriter(output_file) as writer:
             np.random.shuffle(examples)
@@ -707,8 +711,8 @@ class XLNetInputBuilder(object):
                      seq_length,
                      is_training,
                      drop_remainder,
-                     shuffle_buffer,
-                     num_threads):
+                     shuffle_buffer=2048,
+                     num_threads=16):
         """Creates an `input_fn` closure to be passed to TPUEstimator."""
         name_to_features = {
             "unique_ids": tf.FixedLenFeature([], tf.int64),
@@ -1033,7 +1037,85 @@ class XLNetModelBuilder(object):
         return model_fn
 
 def main(_):
-    pass
+    tf.logging.set_verbosity(tf.logging.INFO)
+    
+    np.random.seed(FLAGS.random_seed)
+    
+    if not os.path.exists(FLAGS.output_dir):
+        os.mkdir(FLAGS.output_dir)
+    
+    task_name = FLAGS.task_name.lower()
+    processor = SquadProcessor(
+        data_dir=FLAGS.data_dir,
+        task_name=task_name)
+    
+    tpu_config = model_utils.configure_tpu(FLAGS)
+    model_config = xlnet.XLNetConfig(json_path=FLAGS.model_config_path)
+    run_config = xlnet.create_run_config(False, True, FLAGS)
+    
+    model_builder = XLNetModelBuilder(
+        default_model_config=model_config,
+        default_run_config=run_config,
+        default_init_checkpoint=FLAGS.init_checkpoint,
+        use_tpu=FLAGS.use_tpu)
+    
+    model_fn = model_builder.get_model_fn(model_config, run_config, FLAGS.init_checkpoint)
+    
+    # If TPU is not available, this will fall back to normal Estimator on CPU or GPU.
+    estimator = tf.contrib.tpu.TPUEstimator(
+        use_tpu=FLAGS.use_tpu,
+        model_fn=model_fn,
+        config=tpu_config,
+        export_to_tpu=FLAGS.use_tpu,
+        train_batch_size=FLAGS.train_batch_size,
+        eval_batch_size=FLAGS.eval_batch_size,
+        predict_batch_size=FLAGS.predict_batch_size)
+    
+    tokenizer = XLNetTokenizer(
+        sp_model_file=FLAGS.spiece_model_file,
+        lower_case=FLAGS.lower_case)
+    
+    example_converter = XLNetExampleConverter(
+        max_seq_length=FLAGS.max_seq_length,
+        max_query_length=FLAGS.max_query_length,
+        doc_stride=FLAGS.doc_stride,
+        tokenizer=tokenizer)
+    
+    if FLAGS.do_train:
+        train_examples = processor.get_train_examples()
+        
+        tf.logging.info("***** Run training *****")
+        tf.logging.info("  Num examples = %d", len(train_examples))
+        tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
+        tf.logging.info("  Num steps = %d", FLAGS.train_steps)
+        
+        train_record_path = os.path.join(FLAGS.output_dir, "train-{0}.tfrecord".format(task_name))
+        example_converter.convert_examples_to_features(train_examples, train_record_path, True, FLAGS.overwrite_data)
+        
+        train_input_fn = XLNetInputBuilder.get_input_fn(train_record_path, FLAGS.max_seq_length, True, True, FLAGS.shuffle_buffer)
+        estimator.train(input_fn=train_input_fn, max_steps=FLAGS.train_steps)
+    
+    if FLAGS.do_predict:
+        predict_examples = processor.get_dev_examples()
+        
+        tf.logging.info("***** Run prediction *****")
+        tf.logging.info("  Num examples = %d", len(predict_examples))
+        tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
+        
+        predict_record_path = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
+        example_converter.convert_examples_to_features(predict_examples, predict_record_path, False, , FLAGS.overwrite_data)
+        
+        predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_path, FLAGS.max_seq_length, False, False, FLAGS.shuffle_buffer)
+        predict_result = estimator.predict(input_fn=predict_input_fn)
+        print(predict_result[:2])
+    
+    if FLAGS.do_export:
+        tf.logging.info("***** Running exporting *****")
+        if not os.path.exists(FLAGS.export_dir):
+            os.mkdir(FLAGS.export_dir)
+        
+        serving_input_fn = XLNetInputBuilder.get_serving_input_fn(FLAGS.max_seq_length)
+        estimator.export_savedmodel(FLAGS.export_dir, serving_input_fn, as_text=False)
 
 if __name__ == "__main__":
     flags.mark_flag_as_required("spiece_model_file")
