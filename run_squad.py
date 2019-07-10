@@ -5,6 +5,7 @@ from __future__ import print_function
 import sys
 sys.path.append('xlnet') # walkaround due to submodule absolute import...
 
+import collections
 import os
 import json
 
@@ -18,6 +19,8 @@ import prepro_utils
 import model_utils
 import squad_utils
 
+MIN_FLOAT = -1e30
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -29,7 +32,7 @@ flags.DEFINE_string("export_dir", None, "Export directory where saved model loca
 flags.DEFINE_string("task_name", default=None, help="The name of the task to train.")
 flags.DEFINE_string("model_config_path", default=None, help="Config file of the pre-trained model.")
 flags.DEFINE_string("init_checkpoint", default=None, help="Initial checkpoint of the pre-trained model.")
-flags.DEFINE_string("spiece_model_file", default="", help="Sentence Piece model path.")
+flags.DEFINE_string("spiece_model_file", default=None, help="Sentence Piece model path.")
 flags.DEFINE_bool("overwrite_data", default=False, help="If False, will use cached data if available.")
 flags.DEFINE_integer("random_seed", default=100, help="Random seed for weight initialzation.")
 
@@ -164,14 +167,14 @@ class SquadProcessor(object):
         """Gets a collection of `InputExample`s for the train set."""
         data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
-        example_list = self._get_example(data_list)
+        example_list = self._get_example(data_list, True)
         return example_list
     
     def get_dev_examples(self):
         """Gets a collection of `InputExample`s for the dev set."""
         data_path = os.path.join(self.data_dir, "dev-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
-        example_list = self._get_example(data_list)
+        example_list = self._get_example(data_list, False)
         return example_list
     
     def _read_json(self,
@@ -471,7 +474,7 @@ class XLNetExampleConverter(object):
             max_N = max(N, max_N)
             max_M = max(M, max_M)
         
-        match_mapping, mismatch = self._generate_match_mapping(para_text, tokenized_para_text, max_N, max_M)
+        match_mapping, mismatch = self._generate_match_mapping(para_text, tokenized_para_text, N, M, max_N, max_M)
         
         raw2tokenized_char_index = [None] * N
         tokenized2raw_char_index = [None] * M
@@ -509,7 +512,7 @@ class XLNetExampleConverter(object):
                 tokenized_start_token_pos = tokenized_end_token_pos = -1
             else:
                 raw_start_char_pos = example.start_position
-                raw_end_char_pos = start_position + len(example.orig_answer_text) - 1
+                raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
                 tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
                 tokenized_end_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_end_char_pos, is_start=False)
                 tokenized_start_token_pos = char2token_index[tokenized_start_char_pos]
@@ -590,7 +593,7 @@ class XLNetExampleConverter(object):
             input_mask = [0] * len(input_ids)
             
             # Zero-pad up to the sequence length.
-            while len(input_ids) < max_seq_length:
+            while len(input_ids) < self.max_seq_length:
                 input_ids.append(self.special_vocab_map["<pad>"])
                 input_mask.append(1)
                 segment_ids.append(self.segment_vocab_map["<pad>"])
@@ -634,8 +637,8 @@ class XLNetExampleConverter(object):
                 tf.logging.info("p_mask: %s" % " ".join([str(x) for x in p_mask]))
                 if is_training:
                     if not is_impossible:
-                        tf.logging.info("start_position: %d" % str(start_position))
-                        tf.logging.info("end_position: %d" % str(end_position))
+                        tf.logging.info("start_position: %s" % str(start_position))
+                        tf.logging.info("end_position: %s" % str(end_position))
                         answer_text = prepro_utils.printable_text("".join(input_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                         tf.logging.info("answer_text: %s" % answer_text)
                     else:
@@ -774,7 +777,7 @@ class XLNetInputBuilder(object):
                     'input_ids': tf.placeholder(tf.int32, [None, seq_length], name='input_ids'),
                     'input_mask': tf.placeholder(tf.float32, [None, seq_length], name='input_mask'),
                     'p_mask': tf.placeholder(tf.float32, [None, seq_length], name='p_mask'),
-                    'segment_ids': tf.placeholder(tf.int32, [None, seq_length], name='segment_ids')
+                    'segment_ids': tf.placeholder(tf.int32, [None, seq_length], name='segment_ids'),
                     'cls_index': tf.placeholder(tf.int32, [None], name='cls_index'),
                 }
                 
@@ -795,12 +798,14 @@ class XLNetModelBuilder(object):
         self.default_init_checkpoint = default_init_checkpoint
         self.use_tpu = use_tpu
     
-    def _generate_masked_data(input_data,
+    def _generate_masked_data(self,
+                              input_data,
                               input_mask):
         """Generate masked data"""
         return input_data * input_mask + MIN_FLOAT * (1 - input_mask)
     
-    def _generate_onehot_label(input_data,
+    def _generate_onehot_label(self,
+                               input_data,
                                input_depth):
         """Generate one-hot label"""
         return tf.one_hot(input_data, depth=input_depth, on_value=1.0, off_value=0.0, dtype=tf.float32)
@@ -837,7 +842,7 @@ class XLNetModelBuilder(object):
                       start_positions=None,
                       end_positions=None,
                       is_impossible=None):
-        """Creates XLNet-MRC model"""
+        """Creates XLNet-MRC model"""        
         model = xlnet.XLNetModel(
             xlnet_config=model_config,
             run_config=run_config,
@@ -871,7 +876,7 @@ class XLNetModelBuilder(object):
             with tf.variable_scope("end", reuse=tf.AUTO_REUSE):
                 if is_training:
                     # During training, compute the end logits based on the ground truth of the start position
-                    start_index = self._generate_onehot_label(start_positions, seq_len)                                # [b,1] --> [b,1,l]
+                    start_index = self._generate_onehot_label(tf.expand_dims(start_positions, axis=-1), seq_len)         # [b] --> [b,1,l]
                     feat_result = tf.matmul(start_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
                     feat_result = tf.tile(feat_result, multiples=[1,seq_len,1])                                      # [b,1,h] --> [b,l,h]
                     
@@ -918,7 +923,7 @@ class XLNetModelBuilder(object):
                     end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
                         activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
                     
-                    end_result = tf. = tf.layers.dense(end_result, units=1, activation=None,
+                    end_result = tf.layers.dense(end_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,k,h] --> [b,l,k,1]
                     
@@ -931,12 +936,12 @@ class XLNetModelBuilder(object):
                     predicts["end_index"] = end_top_index
             
             with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
-                cls_index = self._generate_onehot_label(cls_index, seq_len)                                            # [b,1] --> [b,1,l]
+                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
                 feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
                 
                 answer_result = tf.matmul(cls_index, output_result)                                         # [b,1,l], [b,l,h] --> [b,1,h]
                 answer_result = tf.squeeze(tf.concat([answer_result, feat_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
-                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,1] --> [b]
+                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                 
                 answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=None,
                     use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
@@ -957,17 +962,17 @@ class XLNetModelBuilder(object):
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
                 if is_training:
-                    start_label = tf.squeeze(start_positions, axis=-1)                                                     # [b,1] --> [b]
-                    start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,1] --> [b]
+                    start_label = start_positions                                                                                    # [b]
+                    start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,l] --> [b]
                     start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
-                    end_label = tf.squeeze(end_positions, axis=-1)                                                         # [b,1] --> [b]
-                    end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,1] --> [b]
+                    end_label = end_positions                                                                                        # [b]
+                    end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
                     loss += tf.reduce_mean(start_loss + end_loss) * 0.5
                     
                     if is_impossible is not None:
-                        answer_label = tf.squeeze(is_impossible, axis=-1)                                                  # [b,1] --> [b]
-                        answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,1] --> [b]
+                        answer_label = is_impossible                                                                                 # [b]
+                        answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,l] --> [b]
                         answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                             labels=answer_label * answer_label_mask, logits=answer_result)                                           # [b]
                         loss += tf.reduce_mean(answer_loss) * 0.5
@@ -1103,11 +1108,10 @@ def main(_):
         tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
         
         predict_record_path = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
-        example_converter.convert_examples_to_features(predict_examples, predict_record_path, False, , FLAGS.overwrite_data)
+        example_converter.convert_examples_to_features(predict_examples, predict_record_path, False, FLAGS.overwrite_data)
         
         predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_path, FLAGS.max_seq_length, False, False, FLAGS.shuffle_buffer)
         predict_result = estimator.predict(input_fn=predict_input_fn)
-        print(predict_result[:2])
     
     if FLAGS.do_export:
         tf.logging.info("***** Running exporting *****")
