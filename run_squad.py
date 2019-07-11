@@ -7,7 +7,9 @@ sys.path.append('xlnet') # walkaround due to submodule absolute import...
 
 import collections
 import os
+import os.path
 import json
+import pickle
 
 import tensorflow as tf
 import numpy as np
@@ -51,7 +53,6 @@ flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
 flags.DEFINE_integer("max_query_length", default=64, help="Max query length")
 flags.DEFINE_integer("max_answer_length", default=64, help="Max answer length")
 flags.DEFINE_integer("train_batch_size", default=48, help="Total batch size for training.")
-flags.DEFINE_integer("eval_batch_size", default=32, help="Total batch size for eval.")
 flags.DEFINE_integer("predict_batch_size", default=32, help="Total batch size for predict.")
 
 flags.DEFINE_integer("train_steps", default=8000, help="Number of training steps")
@@ -140,22 +141,22 @@ class InputFeatures(object):
                  is_impossible=None):
         self.unique_id = unique_id
         self.qas_id = qas_id
-        self.doc_span_index = doc_idx
-        self.tok_start_to_orig_index = token2char_raw_start_index
-        self.tok_end_to_orig_index = token2char_raw_end_index
-        self.token_is_max_context = token2doc_index
+        self.doc_idx = doc_idx
+        self.token2char_raw_start_index = token2char_raw_start_index
+        self.token2char_raw_end_index = token2char_raw_end_index
+        self.token2doc_index = token2doc_index
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.p_mask = p_mask
         self.segment_ids = segment_ids
         self.cls_index = cls_index
-        self.paragraph_len = para_length
+        self.para_length = para_length
         self.start_position = start_position
         self.end_position = end_position
         self.is_impossible = is_impossible
 
-class SquadProcessor(object):
-    """Processor for SQuAD dataset."""
+class SquadPipeline(object):
+    """Pipeline for SQuAD dataset."""
     def __init__(self,
                  data_dir,
                  task_name):
@@ -269,14 +270,14 @@ class XLNetTokenizer(object):
         """Convert ids to tokens for XLNet"""
         return [self.sp_processor.IdToPiece(id) for id in ids]
 
-class XLNetExampleConverter(object):
-    """Default example converter for XLNet"""
+class XLNetExampleProcessor(object):
+    """Default example processor for XLNet"""
     def __init__(self,
                  max_seq_length,
                  max_query_length,
                  doc_stride,
                  tokenizer):
-        """Construct XLNet example converter"""
+        """Construct XLNet example processor"""
         self.special_vocab_list = ["<unk>", "<s>", "</s>", "<cls>", "<sep>", "<pad>", "<mask>", "<eod>", "<eop>"]
         self.special_vocab_map = {}
         for (i, special_vocab) in enumerate(self.special_vocab_list):
@@ -504,12 +505,8 @@ class XLNetExampleConverter(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
 
-        if not is_training:
-            tokenized_start_token_pos = tokenized_end_token_pos = None
-        else:
-            if example.is_impossible:
-                tokenized_start_token_pos = tokenized_end_token_pos = -1
-            else:
+        if is_training:
+            if not example.is_impossible:
                 raw_start_char_pos = example.start_position
                 raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
                 tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
@@ -517,6 +514,10 @@ class XLNetExampleConverter(object):
                 tokenized_start_token_pos = char2token_index[tokenized_start_char_pos]
                 tokenized_end_token_pos = char2token_index[tokenized_end_char_pos]
                 assert tokenized_start_token_pos <= tokenized_end_token_pos
+            else:
+                tokenized_start_token_pos = tokenized_end_token_pos = -1
+        else:
+            tokenized_start_token_pos = tokenized_end_token_pos = None
         
         # The -3 accounts for [CLS], [SEP] and [SEP]
         max_para_length = self.max_seq_length - len(query_tokens) - 3
@@ -603,9 +604,9 @@ class XLNetExampleConverter(object):
             assert len(segment_ids) == self.max_seq_length
             assert len(p_mask) == self.max_seq_length
             
-            is_impossible = example.is_impossible
             start_position = None
             end_position = None
+            is_impossible = example.is_impossible
             if is_training:
                 if not is_impossible:
                     # For training, if our document chunk does not contain an annotation, set default values.
@@ -632,13 +633,14 @@ class XLNetExampleConverter(object):
                 tf.logging.info("doc_token2doc_index: %s" % " ".join(["%d:%s" % (x, y) for (x, y) in doc_token2doc_index.items()]))
                 tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
                 tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-                tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
                 tf.logging.info("p_mask: %s" % " ".join([str(x) for x in p_mask]))
+                tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
                 if is_training:
                     if not is_impossible:
                         tf.logging.info("start_position: %s" % str(start_position))
                         tf.logging.info("end_position: %s" % str(end_position))
-                        answer_text = prepro_utils.printable_text("".join(input_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
+                        answer_tokens = input_tokens[start_position:end_position+1]
+                        answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                         tf.logging.info("answer_text: %s" % answer_text)
                     else:
                         tf.logging.info("impossible example")
@@ -667,44 +669,63 @@ class XLNetExampleConverter(object):
     
     def convert_examples_to_features(self,
                                      examples,
-                                     output_file,
-                                     is_training=True,
-                                     overwrite_data=False):
-        """Convert a set of `InputExample`s to a TFRecord file."""
+                                     is_training=True):
+        """Convert a set of `InputExample`s to a list of `InputFeatures`."""
+        features = []
+        for (idx, example) in enumerate(examples):
+            if idx % 1000 == 0:
+                tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
+
+            feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
+            features.extend(feature_list)
+
+        return features
+    
+    def save_features_as_tfrecord(self,
+                                  features,
+                                  output_file,
+                                  is_training=True):
+        """Save a set of `InputFeature`s to a TFRecord file."""
         def create_int_feature(values):
             return tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
         
         def create_float_feature(values):
             return tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
         
-        if os.path.exists(output_file) and not overwrite_data:
-            return
-        
         with tf.python_io.TFRecordWriter(output_file) as writer:
-            np.random.shuffle(examples)
-            
-            for (idx, example) in enumerate(examples):
-                if idx % 1000 == 0:
-                    tf.logging.info("Coverting example %d of %d" % (idx, len(examples)))
+            for feature in features:
+                features = collections.OrderedDict()
+                features["unique_id"] = create_int_feature([feature.unique_id])
+                features["input_ids"] = create_int_feature(feature.input_ids)
+                features["input_mask"] = create_float_feature(feature.input_mask)
+                features["p_mask"] = create_float_feature(feature.p_mask)
+                features["segment_ids"] = create_int_feature(feature.segment_ids)
+                features["cls_index"] = create_int_feature([feature.cls_index])
                 
-                feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
+                if is_training == True:
+                    features["start_position"] = create_int_feature([feature.start_position])
+                    features["end_position"] = create_int_feature([feature.end_position])
+                    features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
                 
-                for feature in feature_list:
-                    features = collections.OrderedDict()
-                    features["unique_ids"] = create_int_feature([feature.unique_id])
-                    features["input_ids"] = create_int_feature(feature.input_ids)
-                    features["input_mask"] = create_float_feature(feature.input_mask)
-                    features["p_mask"] = create_float_feature(feature.p_mask)
-                    features["segment_ids"] = create_int_feature(feature.segment_ids)
-                    features["cls_index"] = create_int_feature([feature.cls_index])
-
-                    if is_training == True:
-                        features["start_positions"] = create_int_feature([feature.start_position])
-                        features["end_positions"] = create_int_feature([feature.end_position])
-                        features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
-
-                    tf_example = tf.train.Example(features=tf.train.Features(feature=features))
-                    writer.write(tf_example.SerializeToString())
+                tf_example = tf.train.Example(features=tf.train.Features(feature=features))
+                writer.write(tf_example.SerializeToString())
+    
+    def save_features_as_pickle(self,
+                                features,
+                                output_file):
+        """Save a set of `InputFeature`s to a Pickle file."""
+        with open(output_file, 'wb') as file:
+            pickle.dump(features, file)
+    
+    def load_features_from_pickle(self,
+                                  input_file):
+        """Load a set of `InputFeature`s from a Pickle file."""
+        if not os.path.exists(input_file):
+            raise FileNotFoundError("feature file not found: {0}".format(input_file))
+        
+        with open(input_file, 'rb') as file:
+            features = pickle.load(file)
+            return features
 
 class XLNetInputBuilder(object):
     """Default input builder for XLNet"""
@@ -717,7 +738,7 @@ class XLNetInputBuilder(object):
                      num_threads=16):
         """Creates an `input_fn` closure to be passed to TPUEstimator."""
         name_to_features = {
-            "unique_ids": tf.FixedLenFeature([], tf.int64),
+            "unique_id": tf.FixedLenFeature([], tf.int64),
             "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
             "input_mask": tf.FixedLenFeature([seq_length], tf.float32),
             "p_mask": tf.FixedLenFeature([seq_length], tf.float32),
@@ -726,8 +747,8 @@ class XLNetInputBuilder(object):
         }
         
         if is_training:
-            name_to_features["start_positions"] = tf.FixedLenFeature([], tf.int64)
-            name_to_features["end_positions"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["end_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["is_impossible"] = tf.FixedLenFeature([], tf.float32)
         
         def _decode_record(record,
@@ -772,7 +793,7 @@ class XLNetInputBuilder(object):
         def serving_input_fn():
             with tf.variable_scope("serving"):
                 features = {
-                    'unique_ids': tf.placeholder(tf.int32, [None], name='unique_ids'),
+                    'unique_id': tf.placeholder(tf.int32, [None], name='unique_id'),
                     'input_ids': tf.placeholder(tf.int32, [None, seq_length], name='input_ids'),
                     'input_mask': tf.placeholder(tf.float32, [None, seq_length], name='input_mask'),
                     'p_mask': tf.placeholder(tf.float32, [None, seq_length], name='p_mask'),
@@ -994,7 +1015,7 @@ class XLNetModelBuilder(object):
             
             is_training = (mode == tf.estimator.ModeKeys.TRAIN)
             
-            unique_ids = features["unique_ids"]
+            unique_id = features["unique_id"]
             input_ids = features["input_ids"]
             input_mask = features["input_mask"]
             p_mask = features["p_mask"]
@@ -1002,16 +1023,16 @@ class XLNetModelBuilder(object):
             cls_index = features["cls_index"]
             
             if is_training:
-                start_positions = features["start_positions"]
-                end_positions = features["end_positions"]
+                start_position = features["start_position"]
+                end_position = features["end_position"]
                 is_impossible = features["is_impossible"]
             else:
-                start_positions = None
-                end_positions = None
+                start_position = None
+                end_position = None
                 is_impossible = None
 
             loss, predicts = self._create_model(model_config, run_config, is_training,
-                input_ids, input_mask, p_mask, segment_ids, cls_index, start_positions, end_positions, is_impossible)
+                input_ids, input_mask, p_mask, segment_ids, cls_index, start_position, end_position, is_impossible)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
@@ -1027,7 +1048,7 @@ class XLNetModelBuilder(object):
                 output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                     mode=mode,
                     predictions={
-                        "unique_ids": unique_ids,
+                        "unique_id": unique_id,
                         "answer_prob": predicts["answer_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
@@ -1040,14 +1061,16 @@ class XLNetModelBuilder(object):
         
         return model_fn
 
-class XLNetPredictRecorder(object):
-    """Default predict recorder for XLNet"""
+class XLNetPredictProcessor(object):
+    """Default predict processor for XLNet"""
     def __init__(self):
-        """Construct XLNet predict recorder"""
+        """Construct XLNet predict processor"""
         pass
     
-    def record(self,
-               predicts):
+    def process(self,
+                examples,
+                features,
+                results):
         pass
 
 def main(_):
@@ -1059,7 +1082,7 @@ def main(_):
         os.mkdir(FLAGS.output_dir)
     
     task_name = FLAGS.task_name.lower()
-    processor = SquadProcessor(
+    data_pipeline = SquadPipeline(
         data_dir=FLAGS.data_dir,
         task_name=task_name)
     
@@ -1082,57 +1105,65 @@ def main(_):
         config=tpu_config,
         export_to_tpu=FLAGS.use_tpu,
         train_batch_size=FLAGS.train_batch_size,
-        eval_batch_size=FLAGS.eval_batch_size,
         predict_batch_size=FLAGS.predict_batch_size)
     
     tokenizer = XLNetTokenizer(
         sp_model_file=FLAGS.spiece_model_file,
         lower_case=FLAGS.lower_case)
     
-    example_converter = XLNetExampleConverter(
+    example_processor = XLNetExampleProcessor(
         max_seq_length=FLAGS.max_seq_length,
         max_query_length=FLAGS.max_query_length,
         doc_stride=FLAGS.doc_stride,
         tokenizer=tokenizer)
     
     if FLAGS.do_train:
-        train_examples = processor.get_train_examples()
+        train_examples = data_pipeline.get_train_examples()
         
         tf.logging.info("***** Run training *****")
         tf.logging.info("  Num examples = %d", len(train_examples))
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
         tf.logging.info("  Num steps = %d", FLAGS.train_steps)
         
-        train_record_path = os.path.join(FLAGS.output_dir, "train-{0}.tfrecord".format(task_name))
-        example_converter.convert_examples_to_features(train_examples, train_record_path, True, FLAGS.overwrite_data)
+        train_record_file = os.path.join(FLAGS.output_dir, "train-{0}.tfrecord".format(task_name))
+        if not os.path.exists(train_record_file) or FLAGS.overwrite_data:
+            train_features = example_processor.convert_examples_to_features(train_examples, True)
+            np.random.shuffle(train_features)
+            example_processor.save_features_as_tfrecord(train_features, train_record_file, True)
         
-        train_input_fn = XLNetInputBuilder.get_input_fn(train_record_path, FLAGS.max_seq_length, True, True, FLAGS.shuffle_buffer)
+        train_input_fn = XLNetInputBuilder.get_input_fn(train_record_file, FLAGS.max_seq_length, True, True, FLAGS.shuffle_buffer)
         estimator.train(input_fn=train_input_fn, max_steps=FLAGS.train_steps)
     
     if FLAGS.do_predict:
-        predict_examples = processor.get_dev_examples()
+        predict_examples = data_pipeline.get_dev_examples()
         
         tf.logging.info("***** Run prediction *****")
         tf.logging.info("  Num examples = %d", len(predict_examples))
         tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
         
-        predict_record_path = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
-        example_converter.convert_examples_to_features(predict_examples, predict_record_path, False, FLAGS.overwrite_data)
+        predict_record_file = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
+        predict_pickle_file = os.path.join(FLAGS.output_dir, "dev-{0}.pkl".format(task_name))
+        if not os.path.exists(predict_record_file) or not os.path.exists(predict_pickle_file) or FLAGS.overwrite_data:
+            predict_features = example_processor.convert_examples_to_features(predict_examples, False)
+            example_processor.save_features_as_tfrecord(predict_features, predict_record_file, False)
+            example_processor.save_features_as_pickle(predict_features, predict_pickle_file)
+        else:
+            predict_features = example_processor.load_features_from_pickle(predict_pickle_file)
         
-        predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_path, FLAGS.max_seq_length, False, False)
-        predict_result = estimator.predict(input_fn=predict_input_fn)
+        predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_file, FLAGS.max_seq_length, False, False)
+        results = estimator.predict(input_fn=predict_input_fn)
         
-        predicts = [{
-            "unique_ids": result["unique_ids"].tolist(),
+        predict_results = [{
+            "unique_id": result["unique_id"],
             "answer_prob": result["answer_prob"].tolist(),
             "start_prob": result["start_prob"].tolist(),
             "start_index": result["start_index"].tolist(),
             "end_prob": result["end_prob"].tolist(),
             "end_index": result["end_index"].tolist()
-        } for result in predict_result]
+        } for result in results]
         
-        predict_recorder = XLNetPredictRecorder()
-        predict_recorder.record(predicts)
+        predict_processor = XLNetPredictProcessor()
+        predict_processor.process(predict_examples, predict_features, predict_results)
     
     if FLAGS.do_export:
         tf.logging.info("***** Running exporting *****")
