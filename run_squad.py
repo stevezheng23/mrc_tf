@@ -37,7 +37,6 @@ flags.DEFINE_bool("overwrite_data", default=False, help="If False, will use cach
 flags.DEFINE_integer("random_seed", default=100, help="Random seed for weight initialzation.")
 
 flags.DEFINE_bool("do_train", default=False, help="Whether to run training.")
-flags.DEFINE_bool("do_eval", default=False, help="Whether to run evaluation.")
 flags.DEFINE_bool("do_predict", default=False, help="Whether to run prediction.")
 flags.DEFINE_bool("do_export", default=False, help="Whether to run exporting.")
 
@@ -1017,7 +1016,7 @@ class XLNetModelBuilder(object):
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
             output_spec = None
-            if mode == tf.estimator.ModeKeys.TRAIN:
+            if is_training:
                 train_op, _, _ = model_utils.get_train_op(FLAGS, loss)
                 output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                     mode=mode,
@@ -1040,6 +1039,16 @@ class XLNetModelBuilder(object):
             return output_spec
         
         return model_fn
+
+class XLNetPredictRecorder(object):
+    """Default predict recorder for XLNet"""
+    def __init__(self):
+        """Construct XLNet predict recorder"""
+        pass
+    
+    def record(self,
+               predicts):
+        pass
 
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
@@ -1110,8 +1119,20 @@ def main(_):
         predict_record_path = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
         example_converter.convert_examples_to_features(predict_examples, predict_record_path, False, FLAGS.overwrite_data)
         
-        predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_path, FLAGS.max_seq_length, False, False, FLAGS.shuffle_buffer)
+        predict_input_fn = XLNetInputBuilder.get_input_fn(predict_record_path, FLAGS.max_seq_length, False, False)
         predict_result = estimator.predict(input_fn=predict_input_fn)
+        
+        predicts = [{
+            "unique_ids": result["unique_ids"].tolist(),
+            "answer_prob": result["answer_prob"].tolist(),
+            "start_prob": result["start_prob"].tolist(),
+            "start_index": result["start_index"].tolist(),
+            "end_prob": result["end_prob"].tolist(),
+            "end_index": result["end_index"].tolist()
+        } for result in predict_result]
+        
+        predict_recorder = XLNetPredictRecorder()
+        predict_recorder.record(predicts)
     
     if FLAGS.do_export:
         tf.logging.info("***** Running exporting *****")
