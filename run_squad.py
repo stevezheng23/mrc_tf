@@ -11,7 +11,6 @@ import os.path
 import json
 import pickle
 import time
-import math
 
 import tensorflow as tf
 import numpy as np
@@ -40,6 +39,7 @@ flags.DEFINE_string("init_checkpoint", default=None, help="Initial checkpoint of
 flags.DEFINE_string("spiece_model_file", default=None, help="Sentence Piece model path.")
 flags.DEFINE_bool("overwrite_data", default=False, help="If False, will use cached data if available.")
 flags.DEFINE_integer("random_seed", default=100, help="Random seed for weight initialzation.")
+flags.DEFINE_string("predict_tag", None, "Predict tag for predict result tracking.")
 
 flags.DEFINE_bool("do_train", default=False, help="Whether to run training.")
 flags.DEFINE_bool("do_predict", default=False, help="Whether to run prediction.")
@@ -1095,8 +1095,8 @@ class XLNetPredictProcessor(object):
         self.tokenizer = tokenizer
         
         predict_tag = predict_tag if predict_tag else str(time.time())
-        self.output_summary = os.path.join(output_dir, "predict.{0}.summary.json".format(predict_tag)
-        self.output_detail = os.path.join(output_dir, "predict.{0}.detail.json".format(predict_tag)
+        self.output_summary = os.path.join(output_dir, "predict.{0}.summary.json".format(predict_tag))
+        self.output_detail = os.path.join(output_dir, "predict.{0}.detail.json".format(predict_tag))
     
     def _write_to_json(self,
                        data_list,
@@ -1126,7 +1126,7 @@ class XLNetPredictProcessor(object):
         qas_id_to_features = {}
         unique_id_to_feature = {}
         for feature in features:
-            if feature.qas_id not in qas_id_to_feature:
+            if feature.qas_id not in qas_id_to_features:
                 qas_id_to_features[feature.qas_id] = []
             
             qas_id_to_features[feature.qas_id].append(feature)
@@ -1140,10 +1140,10 @@ class XLNetPredictProcessor(object):
         predict_detail_list = []
         num_example = len(examples)
         for (example_idx, example) in enumerate(examples):
-            if example_index % 1000 == 0:
-                tf.logging.info('Updating {0}/{1} example with predict'.format(example_index, num_example))
+            if example_idx % 1000 == 0:
+                tf.logging.info('Updating {0}/{1} example with predict'.format(example_idx, num_example))
             
-            if example.qas_id not in qas_id_to_feature:
+            if example.qas_id not in qas_id_to_features:
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
@@ -1181,7 +1181,7 @@ class XLNetPredictProcessor(object):
                             "start_index": start_index,
                             "end_prob": end_prob,
                             "end_index": end_index,
-                            "predict_score": log(start_prob) + log(end_prob)
+                            "predict_score": np.log(start_prob) + np.log(end_prob)
                         })
             
             example_all_predicts = sorted(example_all_predicts, key=lambda x: x["predict_score"], reverse=True)
@@ -1193,8 +1193,8 @@ class XLNetPredictProcessor(object):
                     break
                 
                 example_feature = unique_id_to_feature[example_predict["unique_id"]]
-                predict_start = token2char_raw_start_index[example_predict.start_index]
-                predict_end = token2char_raw_end_index[example_predict.end_index]
+                predict_start = example_feature.token2char_raw_start_index[example_predict["start_index"]]
+                predict_end = example_feature.token2char_raw_end_index[example_predict["end_index"]]
                 predict_text = example.paragraph_text[predict_start:predict_end + 1].strip()
                 
                 if predict_text in is_visited:
