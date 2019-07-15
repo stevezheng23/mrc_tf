@@ -1156,7 +1156,7 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_answer_prob = min(example_answer_prob, example_result.answer_prob)
+                example_answer_prob = min(example_answer_prob, float(example_result.answer_prob))
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
                     start_index = example_result.start_index[i]
@@ -1204,14 +1204,14 @@ class XLNetPredictProcessor(object):
                 
                 example_top_predicts.append({
                     "predict_text": predict_text,
-                    "start_prob": example_predict["start_prob"],
-                    "end_prob": example_predict["end_prob"],
-                    "predict_score": example_predict["predict_score"]
+                    "start_prob": float(example_predict["start_prob"]),
+                    "end_prob": float(example_predict["end_prob"]),
+                    "predict_score": float(example_predict["predict_score"])
                 })
             
             if len(example_top_predicts) == 0:
                 example_top_predicts.append({
-                    "predict_text": None,
+                    "predict_text": "",
                     "start_prob": 0.0,
                     "end_prob": 0.0,
                     "predict_score": 0.0
