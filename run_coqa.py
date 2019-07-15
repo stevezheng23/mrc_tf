@@ -93,7 +93,7 @@ flags.DEFINE_string("master", None, "TensorFlow master URL")
 flags.DEFINE_integer("iterations", 1000, "number of iterations per TPU training loop.")
 
 class InputExample(object):
-    """A single SQuAD example."""
+    """A single CoQA example."""
     def __init__(self,
                  qas_id,
                  question_text,
@@ -121,7 +121,7 @@ class InputExample(object):
         return s
 
 class InputFeatures(object):
-    """A single SQuAD feature."""
+    """A single CoQA feature."""
     def __init__(self,
                  unique_id,
                  qas_id,
@@ -155,7 +155,7 @@ class InputFeatures(object):
         self.is_impossible = is_impossible
 
 class OutputResult(object):
-    """A single SQuAD result."""
+    """A single CoQA result."""
     def __init__(self,
                  unique_id,
                  answer_prob,
@@ -170,8 +170,8 @@ class OutputResult(object):
         self.end_prob = end_prob
         self.end_index = end_index
 
-class SquadPipeline(object):
-    """Pipeline for SQuAD dataset."""
+class CoQAPipeline(object):
+    """Pipeline for CoQA dataset."""
     def __init__(self,
                  data_dir,
                  task_name):
@@ -458,10 +458,10 @@ class XLNetExampleProcessor(object):
         
         return best_doc_idx
     
-    def convert_squad_example(self,
-                              example,
-                              is_training=True,
-                              logging=False):
+    def convert_coqa_example(self,
+                             example,
+                             is_training=True,
+                             logging=False):
         """Converts a single `InputExample` into a single `InputFeatures`."""
         query_tokens = self.tokenizer.tokenize(example.question_text)
         if len(query_tokens) > self.max_query_length:
@@ -691,7 +691,7 @@ class XLNetExampleProcessor(object):
             if idx % 1000 == 0:
                 tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
 
-            feature_list = self.convert_squad_example(example, is_training, logging=(idx < 20))
+            feature_list = self.convert_coqa_example(example, is_training, logging=(idx < 20))
             features.extend(feature_list)
 
         return features
@@ -1245,7 +1245,7 @@ def main(_):
         os.mkdir(FLAGS.output_dir)
     
     task_name = FLAGS.task_name.lower()
-    data_pipeline = SquadPipeline(
+    data_pipeline = CoQAPipeline(
         data_dir=FLAGS.data_dir,
         task_name=task_name)
     
