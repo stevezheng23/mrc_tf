@@ -67,7 +67,7 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
     --do_export=false \
     --overwrite_data=false
 ```
-* Run predict
+* Run export
 ```bash
 CUDA_VISIBLE_DEVICES=0 python run_squad.py \
     --spiece_model_file=model/cased_L-24_H-1024_A-16/spiece.model \
@@ -99,5 +99,16 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
 ### SQuAD v2.0
 <p align="center"><img src="/docs/squad.xlnet.png" width=500></p>
 <p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
-*TODO*
-<p><i>Table 1: The dev set performance of XLNet-large model finetuned on SQuAD v2.0 task with setting: batch size = 48, max length = 512, learning rate = 3e-5, num steps = 8,000</i></p>
+
+|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
+|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
+|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+
+<p><i>Table 1: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
+
+## Reference
+* Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. [SQuAD: 100,000+ questions for machine comprehension of text](https://arxiv.org/abs/1606.05250) [2016]
+* Pranav Rajpurkar, Robin Jia, and Percy Liang. [Know what you don’t know: unanswerable questions for SQuAD](https://arxiv.org/abs/1806.03822) [2018]
+* Danqi Chen. [Neural reading comprehension and beyond](https://cs.stanford.edu/~danqi/papers/thesis.pdf) [2018]
+* Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Carbonell, Ruslan Salakhutdinov and Quoc V. Le. [XLNet: Generalized autoregressive pretraining for language understanding](https://arxiv.org/abs/1906.08237) [2019]
+* Zihang Dai, Zhilin Yang, Yiming Yang, William W Cohen, Jaime Carbonell, Quoc V Le and Ruslan Salakhutdinov. [Transformer-XL: Attentive language models beyond a fixed-length context](https://arxiv.org/abs/1901.02860) [2019]
