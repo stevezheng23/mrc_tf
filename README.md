@@ -100,3 +100,4 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
 <p align="center"><img src="/docs/squad.xlnet.png" width=500></p>
 <p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
 *TODO*
+<p><i>Table 1: The dev set performance of XLNet-large model finetuned on SQuAD v2.0 task with setting: batch size = 48, max length = 512, learning rate = 3e-5, num steps = 8,000</i></p>
