@@ -96,15 +96,27 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
 ```
 
 ## Experiment
-### SQuAD v2.0
-<p align="center"><img src="/docs/squad.xlnet.png" width=500></p>
-<p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
+### SQuAD v1.1
+<p align="center"><img src="/docs/xlnet.squad.v1.png" width=500></p>
+<p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v1.1 task</i></p>
 
 |       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
 |:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
+|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
 |     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
 
-<p><i>Table 1: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
+<p><i>Table 1: The dev set performance of XLNet model finetuned on SQuAD v1.1 task</i></p>
+
+### SQuAD v2.0
+<p align="center"><img src="/docs/xlnet.squad.v2.png" width=500></p>
+<p align="center"><i>Figure 3: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
+
+|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
+|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
+|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+
+<p><i>Table 2: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
 
 ## Reference
 * Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. [SQuAD: 100,000+ questions for machine comprehension of text](https://arxiv.org/abs/1606.05250) [2016]
