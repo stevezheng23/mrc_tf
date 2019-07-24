@@ -1,1 +1,3 @@
 theme: jekyll-theme-cayman
+title: Machine Reading Comprehension (MRC)
+description: This is a Machine Reading Comprehension (MRC) experiment project, which contains various MRC architectures built either from scratch or on top of existing models
