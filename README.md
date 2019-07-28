@@ -100,10 +100,10 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
 <p align="center"><img src="/docs/xlnet.squad.v1.png" width=500></p>
 <p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v1.1 task</i></p>
 
-|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
-|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
-|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
-|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.90  |   92.17  |
+|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   88.61  |   94.28  |
 
 <p><i>Table 1: The dev set performance of XLNet model finetuned on SQuAD v1.1 task</i></p>
 
@@ -111,10 +111,10 @@ CUDA_VISIBLE_DEVICES=0 python run_squad.py \
 <p align="center"><img src="/docs/xlnet.squad.v2.png" width=500></p>
 <p align="center"><i>Figure 3: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
 
-|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
-|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
-|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
-|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   80.23  |   82.90  |
+|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.72  |   88.36  |
 
 <p><i>Table 2: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
 

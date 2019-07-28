@@ -15,10 +15,10 @@ Machine reading comprehension (MRC), a task which asks machine to read a given c
 
 *Figure 2: Illustrations of fine-tuning XLNet on SQuAD v1.1 task*
 
-|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
-|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
-|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
-|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.90  |   92.17  |
+|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   88.61  |   94.28  |
 
 *Table 1: The dev set performance of XLNet model finetuned on SQuAD v1.1 task*
 
@@ -28,10 +28,10 @@ Machine reading comprehension (MRC), a task which asks machine to read a given c
 
 *Figure 3: Illustrations of fine-tuning XLNet on SQuAD v2.0 task*
 
-|       Model       | # Epoch | # Train Steps | Batch Size |   Max Length  | Learning Rate |   EM   |   F1   |
-|:-----------------:|:-------:|:-------------:|:----------:|:-------------:|:-------------:|:------:|:------:|
-|     XLNet-base    |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
-|     XLNet-large   |    ~3   |     8,000     |     48     |      512      |      3e-5     |   N/A  |   N/A  |
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   80.23  |   82.90  |
+|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.72  |   88.36  |
 
 *Table 2: The dev set performance of XLNet model finetuned on SQuAD v2.0 task*
 
