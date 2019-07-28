@@ -570,15 +570,15 @@ class XLNetExampleProcessor(object):
             for i in range(doc_span["length"]):
                 token_idx = doc_span["start"] + i
                 
+                doc_token2char_raw_start_index.append(token2char_raw_start_index[token_idx])
+                doc_token2char_raw_end_index.append(token2char_raw_end_index[token_idx])
+                
+                best_doc_idx = self._find_max_context(doc_spans, token_idx)
+                doc_token2doc_index[len(input_tokens)] = (best_doc_idx == doc_idx)
+                
                 input_tokens.append(para_tokens[token_idx])
                 segment_ids.append(self.segment_vocab_map["<p>"])
                 p_mask.append(0)
-                
-                doc_token2char_raw_start_index.append(token2char_raw_start_index[token_idx])
-                doc_token2char_raw_end_index.append(token2char_raw_end_index[token_idx])
-
-                best_doc_idx = self._find_max_context(doc_spans, token_idx)
-                doc_token2doc_index[len(input_tokens)] = (best_doc_idx == doc_idx)
             
             doc_para_length = len(input_tokens)
             
@@ -922,9 +922,6 @@ class XLNetModelBuilder(object):
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
                     
-                    end_result = tf.layers.dropout(end_result,
-                        rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                     # [b,l,h] --> [b,l,h]
-                    
                     end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
                         activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)                # [b,l,h] --> [b,l,h]
                     
@@ -952,9 +949,6 @@ class XLNetModelBuilder(object):
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
                     
-                    end_result = tf.layers.dropout(end_result,
-                        rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                 # [b,l,k,h] --> [b,l,k,h]
-                    
                     end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
                         activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
                     
@@ -975,7 +969,7 @@ class XLNetModelBuilder(object):
                 feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
                 
                 answer_result = tf.matmul(cls_index, output_result)                                         # [b,1,l], [b,l,h] --> [b,1,h]
-                answer_result = tf.squeeze(tf.concat([answer_result, feat_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
+                answer_result = tf.squeeze(tf.concat([feat_result, answer_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
                 answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                 
                 answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=None,
@@ -1010,7 +1004,7 @@ class XLNetModelBuilder(object):
                         answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,l] --> [b]
                         answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                             labels=answer_label * answer_label_mask, logits=answer_result)                                           # [b]
-                        loss += tf.reduce_mean(answer_loss) * 0.5
+                        loss += tf.reduce_mean(answer_loss)
         
         return loss, predicts
     
