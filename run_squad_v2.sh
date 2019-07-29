@@ -86,7 +86,7 @@ echo "warmup steps   = ${WARMUPSTEPS}"
 echo "save steps     = ${SAVESTEPS}"
 
 alias python=python3
-mkdir ${OUTPUTDIR}
+#mkdir ${OUTPUTDIR}
 
 start_time=`date +%s`
 
