@@ -972,8 +972,8 @@ class XLNetModelBuilder(object):
                 answer_result = tf.squeeze(tf.concat([feat_result, answer_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
                 answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                 
-                answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=None,
-                    use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=tf.tanh,
+                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                     kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
                 
                 answer_result = tf.layers.dropout(answer_result,
@@ -1004,7 +1004,7 @@ class XLNetModelBuilder(object):
                         answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,l] --> [b]
                         answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
                             labels=answer_label * answer_label_mask, logits=answer_result)                                           # [b]
-                        loss += tf.reduce_mean(answer_loss)
+                        loss += tf.reduce_mean(answer_loss) * 0.5
         
         return loss, predicts
     
