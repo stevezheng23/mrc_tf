@@ -823,14 +823,10 @@ class XLNetInputBuilder(object):
 class XLNetModelBuilder(object):
     """Default model builder for XLNet"""
     def __init__(self,
-                 default_model_config,
-                 default_run_config,
-                 default_init_checkpoint,
+                 model_config,
                  use_tpu=False):
         """Construct XLNet model builder"""
-        self.default_model_config = default_model_config
-        self.default_run_config = default_run_config
-        self.default_init_checkpoint = default_init_checkpoint
+        self.model_config = model_config
         self.use_tpu = use_tpu
     
     def _generate_masked_data(self,
@@ -866,8 +862,6 @@ class XLNetModelBuilder(object):
         return loss
     
     def _create_model(self,
-                      model_config,
-                      run_config,
                       is_training,
                       input_ids,
                       input_mask,
@@ -877,10 +871,10 @@ class XLNetModelBuilder(object):
                       start_positions=None,
                       end_positions=None,
                       is_impossible=None):
-        """Creates XLNet-MRC model"""        
+        """Creates XLNet-SQuAD model"""
         model = xlnet.XLNetModel(
-            xlnet_config=model_config,
-            run_config=run_config,
+            xlnet_config=self.model_config,
+            run_config=xlnet.create_run_config(is_training, True, FLAGS),
             input_ids=tf.transpose(input_ids, perm=[1,0]),                                                               # [b,l] --> [l,b]
             input_mask=tf.transpose(input_mask, perm=[1,0]),                                                             # [b,l] --> [l,b]
             seg_ids=tf.transpose(segment_ids, perm=[1,0]))                                                               # [b,l] --> [l,b]
@@ -918,7 +912,7 @@ class XLNetModelBuilder(object):
                     end_result = tf.concat([output_result, feat_result], axis=-1)                          # [b,l,h], [b,l,h] --> [b,l,2h]
                     end_result_mask = 1 - p_mask                                                                                   # [b,l]
                     
-                    end_result = tf.layers.dense(end_result, units=model_config.d_model, activation=tf.tanh,
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
                     
@@ -945,7 +939,7 @@ class XLNetModelBuilder(object):
                     end_result_mask = tf.expand_dims(1 - p_mask, axis=1)                                               # [b,l] --> [b,1,l]
                     end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
                     
-                    end_result = tf.layers.dense(end_result, units=model_config.d_model, activation=tf.tanh,
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
                     
@@ -972,7 +966,7 @@ class XLNetModelBuilder(object):
                 answer_result = tf.squeeze(tf.concat([feat_result, answer_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
                 answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                 
-                answer_result = tf.layers.dense(answer_result, units=model_config.d_model, activation=tf.tanh,
+                answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.tanh,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                     kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
                 
@@ -1008,10 +1002,7 @@ class XLNetModelBuilder(object):
         
         return loss, predicts
     
-    def get_model_fn(self,
-                     model_config,
-                     run_config,
-                     init_checkpoint):
+    def get_model_fn(self):
         """Returns `model_fn` closure for TPUEstimator."""
         def model_fn(features,
                      labels,
@@ -1040,8 +1031,8 @@ class XLNetModelBuilder(object):
                 end_position = None
                 is_impossible = None
 
-            loss, predicts = self._create_model(model_config, run_config, is_training,
-                input_ids, input_mask, p_mask, segment_ids, cls_index, start_position, end_position, is_impossible)
+            loss, predicts = self._create_model(is_training, input_ids, input_mask,
+                p_mask, segment_ids, cls_index, start_position, end_position, is_impossible)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
@@ -1243,19 +1234,17 @@ def main(_):
         data_dir=FLAGS.data_dir,
         task_name=task_name)
     
-    tpu_config = model_utils.configure_tpu(FLAGS)
     model_config = xlnet.XLNetConfig(json_path=FLAGS.model_config_path)
-    run_config = xlnet.create_run_config(False, True, FLAGS)
     
     model_builder = XLNetModelBuilder(
-        default_model_config=model_config,
-        default_run_config=run_config,
-        default_init_checkpoint=FLAGS.init_checkpoint,
+        model_config=model_config,
         use_tpu=FLAGS.use_tpu)
     
-    model_fn = model_builder.get_model_fn(model_config, run_config, FLAGS.init_checkpoint)
+    model_fn = model_builder.get_model_fn()
     
     # If TPU is not available, this will fall back to normal Estimator on CPU or GPU.
+    tpu_config = model_utils.configure_tpu(FLAGS)
+    
     estimator = tf.contrib.tpu.TPUEstimator(
         use_tpu=FLAGS.use_tpu,
         model_fn=model_fn,
