@@ -224,7 +224,7 @@ class CoqaPipeline(object):
                 orig_answer_text = None
                 is_impossible = False
                 if is_training:
-                    is_impossible = "bad_turn" in qas[i][1]
+                    is_impossible = "bad_turn" in qas[i][1] or (qas[i][1]["span_start"] == -1 and qas[i][1]["span_end"] == -1)
                     if not is_impossible:
                         orig_answer_text = qas[i][1]["span_text"].strip()
                         start_position = qas[i][1]["span_start"]
