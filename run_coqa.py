@@ -205,39 +205,41 @@ class CoqaPipeline(object):
                      data_list,
                      is_training):
         examples = []
-        for entry in data_list:
-            for paragraph in entry["paragraphs"]:
-                paragraph_text = paragraph["context"]
+        for data in data_list:
+            data_id = data["id"]
+            paragraph_text = data["story"]
+            
+            questions = sorted(data["questions"], key=lambda x: x["turn_id"])
+            answers = sorted(data["answers"], key=lambda x: x["turn_id"])
+            qas = list(zip(questions, answers))
+            
+            for i, qa in enumerate(qas):
+                qas_id = "{0}_{1}".format(data_id, i+1)
+                question_text_list = ["{0} <sep> {1}".format(q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i+1]]
+                question_text = " <sep> ".join(question_text_list)
                 
-                for qa in paragraph["qas"]:
-                    qas_id = qa["id"]
-                    question_text = qa["question"]
-                    start_position = None
-                    orig_answer_text = None
-                    is_impossible = False
-                    
-                    if is_training:
-                        is_impossible = qa["is_impossible"]
-                        if (len(qa["answers"]) != 1) and (not is_impossible):
-                            raise ValueError("For training, each question should have exactly 1 answer.")
-                        
-                        if not is_impossible:
-                            answer = qa["answers"][0]
-                            orig_answer_text = answer["text"]
-                            start_position = answer["answer_start"]
-                        else:
-                            start_position = -1
-                            orig_answer_text = ""
-                    
-                    example = InputExample(
-                        qas_id=qas_id,
-                        question_text=question_text,
-                        paragraph_text=paragraph_text,
-                        orig_answer_text=orig_answer_text,
-                        start_position=start_position,
-                        is_impossible=is_impossible)
-                    
-                    examples.append(example)
+                start_position = None
+                orig_answer_text = None
+                is_impossible = False
+
+                if is_training:
+                    is_impossible = "bad_turn" in qa[1]
+                    if not is_impossible:
+                        orig_answer_text = qa[1]["span_text"].strip()
+                        start_position = qa[1]["span_start"]
+                    else:
+                        start_position = -1
+                        orig_answer_text = ""
+
+                example = InputExample(
+                    qas_id=qas_id,
+                    question_text=question_text,
+                    paragraph_text=paragraph_text,
+                    orig_answer_text=orig_answer_text,
+                    start_position=start_position,
+                    is_impossible=is_impossible)
+
+                examples.append(example)
         
         return examples
 
