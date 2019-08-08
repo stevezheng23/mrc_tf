@@ -50,14 +50,14 @@ flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init
 flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
-flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
-flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
-flags.DEFINE_integer("max_query_length", default=64, help="Max query length")
+flags.DEFINE_integer("doc_stride", default=256, help="Doc stride")
+flags.DEFINE_integer("max_seq_length", default=768, help="Max sequence length")
+flags.DEFINE_integer("max_query_length", default=256, help="Max query length")
 flags.DEFINE_integer("max_answer_length", default=64, help="Max answer length")
-flags.DEFINE_integer("train_batch_size", default=48, help="Total batch size for training.")
+flags.DEFINE_integer("train_batch_size", default=32, help="Total batch size for training.")
 flags.DEFINE_integer("predict_batch_size", default=32, help="Total batch size for predict.")
 
-flags.DEFINE_integer("train_steps", default=8000, help="Number of training steps")
+flags.DEFINE_integer("train_steps", default=20000, help="Number of training steps")
 flags.DEFINE_integer("warmup_steps", default=0, help="number of warmup steps")
 flags.DEFINE_integer("max_save", default=5, help="Max number of checkpoints to save. Use 0 to save all.")
 flags.DEFINE_integer("save_steps", default=1000, help="Save the model for every save_steps. If None, not to save any model.")
@@ -211,22 +211,22 @@ class CoqaPipeline(object):
             
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
-            qas = list(zip(questions, answers))
             
-            for i, qa in enumerate(qas):
+            qas = list(zip(questions, answers))
+            qas_len = len(qas)
+            for i in range(qas_len):
                 qas_id = "{0}_{1}".format(data_id, i+1)
-                question_text_list = ["{0} <sep> {1}".format(q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i+1]]
-                question_text = " <sep> ".join(question_text_list)
+                question_text = " <sep> ".join(["{0} <sep> {1}".format(
+                    q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i+1]])
                 
                 start_position = None
                 orig_answer_text = None
                 is_impossible = False
-
                 if is_training:
-                    is_impossible = "bad_turn" in qa[1]
+                    is_impossible = "bad_turn" in qas[i][1]
                     if not is_impossible:
-                        orig_answer_text = qa[1]["span_text"].strip()
-                        start_position = qa[1]["span_start"]
+                        orig_answer_text = qas[i][1]["span_text"].strip()
+                        start_position = qas[i][1]["span_start"]
                     else:
                         start_position = -1
                         orig_answer_text = ""
