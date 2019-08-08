@@ -217,7 +217,8 @@ class CoqaPipeline(object):
             for i in range(qas_len):
                 qas_id = "{0}_{1}".format(data_id, i+1)
                 question_text = " <sep> ".join(["{0} <sep> {1}".format(
-                    q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i+1]])
+                    q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i]])
+                question_text = "{0} <sep> {1}".format(question_text, qas[i][0]["input_text"])
                 
                 start_position = None
                 orig_answer_text = None
@@ -467,7 +468,7 @@ class XLNetExampleProcessor(object):
         """Converts a single `InputExample` into a single `InputFeatures`."""
         query_tokens = self.tokenizer.tokenize(example.question_text)
         if len(query_tokens) > self.max_query_length:
-            query_tokens = query_tokens[:self.max_query_length]
+            query_tokens = query_tokens[-self.max_query_length:]
         
         para_text = example.paragraph_text
         para_tokens = self.tokenizer.tokenize(example.paragraph_text)
