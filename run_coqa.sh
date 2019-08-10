@@ -146,6 +146,15 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
 --do_export=false \
 --overwrite_data=false
 
+python tool/convert_coqa_v1.py \
+--input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
+--output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json
+
+python tool/eval_coqa_v1.py \
+--data-file=${DATADIR}/dev-${TASKNAME}.json \
+--pred-file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
+--out-file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
+
 end_time=`date +%s`
 echo execution time was `expr $end_time - $start_time` s.
 
