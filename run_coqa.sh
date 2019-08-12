@@ -153,7 +153,7 @@ python tool/convert_coqa_v1.py \
 python tool/eval_coqa_v1.py \
 --data-file=${DATADIR}/dev-${TASKNAME}.json \
 --pred-file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
---out-file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
+>> ${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
 
 end_time=`date +%s`
 echo execution time was `expr $end_time - $start_time` s.
