@@ -114,11 +114,12 @@ class InputExample(object):
     def __repr__(self):
         s = "qas_id: %s" % (prepro_utils.printable_text(self.qas_id))
         s += ", question_text: %s" % (prepro_utils.printable_text(self.question_text))
-        s += ", paragraph_text: [%s]" % (" ".join(self.paragraph_text))
-        if self.start_position:
+        s += ", paragraph_text: [%s]" % (prepro_utils.printable_text(self.paragraph_text))
+        if self.start_position >= 0:
             s += ", start_position: %d" % (self.start_position)
+            s += ", orig_answer_text: %s" % (prepro_utils.printable_text(self.orig_answer_text))
             s += ", is_impossible: %r" % (self.is_impossible)
-        return s
+        return "[{0}]\n".format(s)
 
 class InputFeatures(object):
     """A single CoQA feature."""
@@ -218,7 +219,8 @@ class CoqaPipeline(object):
                 qas_id = "{0}_{1}".format(data_id, i+1)
                 question_text = " <sep> ".join(["{0} <sep> {1}".format(
                     q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i]])
-                question_text = "{0} <sep> {1}".format(question_text, qas[i][0]["input_text"])
+                question_text = ("{0} <sep> {1}".format(question_text, qas[i][0]["input_text"])
+                    if question_text else qas[i][0]["input_text"])
                 
                 start_position = None
                 orig_answer_text = None
@@ -1268,7 +1270,7 @@ def main(_):
     
     if FLAGS.do_train:
         train_examples = data_pipeline.get_train_examples()
-        
+        print(train_examples[:3])
         tf.logging.info("***** Run training *****")
         tf.logging.info("  Num examples = %d", len(train_examples))
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
