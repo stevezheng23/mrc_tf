@@ -217,10 +217,17 @@ class CoqaPipeline(object):
             qas_len = len(qas)
             for i in range(qas_len):
                 qas_id = "{0}_{1}".format(data_id, i+1)
-                question_text = " <sep> ".join(["{0} <sep> {1}".format(
-                    q["input_text"].strip(), a["input_text"].strip()) for q, a in qas[:i]])
-                question_text = ("{0} <sep> {1}".format(question_text, qas[i][0]["input_text"])
-                    if question_text else qas[i][0]["input_text"])
+                
+                question_tokens = []
+                for q, a in qas[:i]:
+                    if "bad_turn" in a or (a["span_start"] == -1 and a["span_end"] == -1):
+                        continue
+                    
+                    question_tokens.extend(['<s>'] + q["input_text"].split(' '))
+                    question_tokens.extend(['</s>'] + a["input_text"].split(' '))
+                
+                question_tokens.extend(['<s>'] + qas[i][0]["input_text"].split(' '))
+                question_text = " ".join(question_tokens)
                 
                 start_position = None
                 orig_answer_text = None
@@ -1270,7 +1277,7 @@ def main(_):
     
     if FLAGS.do_train:
         train_examples = data_pipeline.get_train_examples()
-        print(train_examples[:3])
+        
         tf.logging.info("***** Run training *****")
         tf.logging.info("  Num examples = %d", len(train_examples))
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
