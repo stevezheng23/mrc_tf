@@ -253,9 +253,26 @@ class CoqaPipeline(object):
         return word_start, word_end
     
     def _search_best_span(self,
-                          tokens,
-                          ground_truth):
-        pass
+                          context_tokens,
+                          answer_tokens):
+        best_f1 = 0.0
+        best_start, best_end = -1, -1
+        search_index = [idx for idx in range(len(context_tokens)) if context_tokens[idx] in answer_tokens]
+        for i in range(len(search_index)):
+            for j in range(i, len(search_index)):
+                candidate_tokens = [context_tokens[k] for k in range(search_index[i], search_index[j]+1) if context_tokens[k]]
+                common = collections.Counter(candidate_tokens) & collections.Counter(answer_tokens)
+                num_common = sum(common.values())
+                if num_common > 0:
+                    precision = 1.0 * num_common / len(candidate_tokens)
+                    recall = 1.0 * num_common / len(answer_tokens)
+                    f1 = (2 * precision * recall) / (precision + recall)
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_start = context_tokens[search_index[i]][0]
+                        best_end = context_tokens[search_index[j]][1]
+        
+        return best_f1, best_start, best_end
     
     def _get_question_text(self,
                            history,
@@ -294,7 +311,30 @@ class CoqaPipeline(object):
                            rationale_start,
                            rationale_end,
                            paragraph_text):
-        pass
+        answer_tokens = self._whitespace_tokenize(answer_text)
+        answer_norm_tokens = [CoQAEvaluator.normalize_answer(token) for token, _, _ in answer_tokens]
+        answer_norm_tokens = [norm_token for norm_token in answer_norm_tokens if norm_token]
+        
+        if not answer_norm_tokens:
+            return -1, -1
+        
+        paragraph_tokens = self._whitespace_tokenize(paragraph_text)
+        
+        rationale_word_start, rationale_word_end = self._char_span_to_word_span(rationale_start, rationale_end, paragraph_tokens)
+        rationale_tokens = paragraph_tokens[rationale_word_start:rationale_word_end+1]
+        rationale_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in rationale_tokens]
+        match_score, answer_start, answer_end = self._search_best_span(rationale_norm_tokens, answer_norm_tokens)
+        
+        if match_score > 0.0:
+            return answer_start, answer_end
+        
+        paragraph_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in paragraph_tokens]
+        match_score, answer_start, answer_end = self._search_best_span(paragraph_norm_tokens, answer_norm_tokens)
+        
+        if match_score > 0.0:
+            return answer_start, answer_end
+        
+        return -1, -1
     
     def _get_answer_span(self,
                          answer,
@@ -304,7 +344,7 @@ class CoqaPipeline(object):
             return "", -1, -1, False
         
         input_text = answer["input_text"].strip().lower()
-        span_start, span_end = self._align_answer_span(answer["span_start"], answer["span_end"], paragraph_text)
+        span_start, span_end = answer["span_start"], answer["span_end"]
         span_text = paragraph_text[span_start:span_end].lower()
         
         if input_text in span_text:
