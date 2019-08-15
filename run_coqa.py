@@ -16,6 +16,7 @@ import tensorflow as tf
 import numpy as np
 import sentencepiece as sp
 
+from tool import eval_coqa_v1
 from xlnet import xlnet
 import function_builder
 import prepro_utils
@@ -100,12 +101,16 @@ class InputExample(object):
                  paragraph_text,
                  orig_answer_text=None,
                  start_position=None,
+                 answer_type=None,
+                 is_skipped=False,
                  is_impossible=False):
         self.qas_id = qas_id
         self.question_text = question_text
         self.paragraph_text = paragraph_text
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
+        self.answer_type=answer_type
+        self.is_skipped=is_skipped
         self.is_impossible = is_impossible
     
     def __str__(self):
@@ -202,6 +207,93 @@ class CoqaPipeline(object):
         else:
             raise FileNotFoundError("data path not found: {0}".format(data_path))
     
+    def _get_question_text(self,
+                           history,
+                           question):
+        question_tokens = [history] if history else []
+        question_tokens.extend(['<s>'] + question["input_text"].split(' '))
+        
+        return " ".join(question_tokens)
+    
+    def _get_question_history(self,
+                              history,
+                              question,
+                              answer,
+                              answer_type):
+        question_tokens = [history] if history else []
+        
+        if answer_type != "unknown":
+            question_tokens.extend(['<s>'] + question["input_text"].split(' '))
+            question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
+        
+        return " ".join(question_tokens)
+    
+    def _align_answer_span(self,
+                           span_start,
+                           span_end,
+                           paragraph_text):
+        span_len = span_end - span_start
+        span_text = paragraph_text[span_start:span_end]
+        span_start += span_len - len(span_text.lstrip())
+        span_end -= span_len - len(span_text.rstrip())
+        
+        return span_start, span_end
+    
+    def _find_answer_span(self,
+                          input_text,
+                          span_text,
+                          span_start,
+                          span_end):
+        idx = span_text.find(input_text)
+        span_start += idx
+        span_end = span_start + len(input_text)
+        
+        return span_start, span_end
+    
+    def _match_answer_span(self,
+                           input_text,
+                           span_start,
+                           span_end,
+                           paragraph_text):
+        return span_start, span_end
+    
+    def _get_answer_span(self,
+                         answer,
+                         answer_type,
+                         paragraph_text):
+        if answer_type != "span":
+            return "", -1, -1, False
+        
+        input_text = answer["input_text"].strip().lower()
+        span_start, span_end = self._align_answer_span(answer["span_start"], answer["span_end"], paragraph_text)
+        span_text = paragraph_text[span_start:span_end].lower()
+        
+        if input_text in span_text:
+            span_start, span_end = self._find_answer_span(input_text, span_text, span_start, span_end)
+        else:
+            span_start, span_end = self._match_answer_span(input_text, span_start, span_end, paragraph_text.lower())
+        
+        if span_start == -1 or span_end == -1:
+            answer_text = ""
+            is_skipped = True
+        else:
+            answer_text = paragraph_text[span_start:span_end]
+            is_skipped = False
+        
+        return answer_text, span_start, span_end, is_skipped
+    
+    def _get_answer_type(self,
+                         answer):
+        norm_text = eval_coqa_v1.CoQAEvaluator.normalize_answer(answer["input_text"])
+        
+        if norm_text == "unknown" or "bad_turn" in answer or (answer["span_start"] == -1 and answer["span_end"] == -1):
+            return "unknown"
+        
+        if norm_text in ["yes", "no"]:
+            return norm_text
+        
+        return "span"
+    
     def _get_example(self,
                      data_list,
                      is_training):
@@ -213,40 +305,33 @@ class CoqaPipeline(object):
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
             
+            question_history = ""
             qas = list(zip(questions, answers))
-            qas_len = len(qas)
-            for i in range(qas_len):
+            for i, (question, answer) in enumerate(qas):
                 qas_id = "{0}_{1}".format(data_id, i+1)
                 
-                question_tokens = []
-                for q, a in qas[:i]:
-                    if "bad_turn" in a or (a["span_start"] == -1 and a["span_end"] == -1):
-                        continue
-                    
-                    question_tokens.extend(['<s>'] + q["input_text"].split(' '))
-                    question_tokens.extend(['</s>'] + a["input_text"].split(' '))
+                answer_type = self._get_answer_type(answer)
+                answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
+                question_text = self._get_question_text(question_history, question)
+                question_history = self._get_question_history(question_history, question, answer, answer_type)
                 
-                question_tokens.extend(['<s>'] + qas[i][0]["input_text"].split(' '))
-                question_text = " ".join(question_tokens)
-                
-                start_position = None
-                orig_answer_text = None
-                is_impossible = False
-                if is_training:
-                    is_impossible = "bad_turn" in qas[i][1] or (qas[i][1]["span_start"] == -1 and qas[i][1]["span_end"] == -1)
-                    if not is_impossible:
-                        orig_answer_text = qas[i][1]["span_text"].strip()
-                        start_position = qas[i][1]["span_start"]
-                    else:
-                        start_position = -1
-                        orig_answer_text = ""
+                if answer_type != "unknown" and not is_skipped:
+                    orig_answer_text = answer_text
+                    start_position = span_start
+                else:
+                    start_position = -1
+                    orig_answer_text = ""
 
+                is_impossible = (answer_type == "unknown")
+                
                 example = InputExample(
                     qas_id=qas_id,
                     question_text=question_text,
                     paragraph_text=paragraph_text,
                     orig_answer_text=orig_answer_text,
                     start_position=start_position,
+                    answer_type=answer_type,
+                    is_skipped=is_skipped,
                     is_impossible=is_impossible)
 
                 examples.append(example)
