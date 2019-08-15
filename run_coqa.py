@@ -16,7 +16,7 @@ import tensorflow as tf
 import numpy as np
 import sentencepiece as sp
 
-from tool import eval_coqa_v1
+from tool.eval_coqa_v1 import CoQAEvaluator
 from xlnet import xlnet
 import function_builder
 import prepro_utils
@@ -207,6 +207,56 @@ class CoqaPipeline(object):
         else:
             raise FileNotFoundError("data path not found: {0}".format(data_path))
     
+    def _whitespace_tokenize(self,
+                             text):
+        word_spans = []
+        char_list = []
+        for idx, char in enumerate(text):
+            if char != ' ':
+                char_list.append(idx)
+                continue
+            
+            if char_list:
+                word_start = char_list[0]
+                word_end = char_list[-1]
+                word_text = text[word_start:word_end+1]
+                word_spans.append((word_text, word_start, word_end))
+                char_list.clear()
+        
+        if char_list:
+            word_start = char_list[0]
+            word_end = char_list[-1]
+            word_text = text[word_start:word_end+1]
+            word_spans.append((word_text, word_start, word_end))
+        
+        return word_spans
+    
+    def _char_span_to_word_span(self,
+                                char_start,
+                                char_end,
+                                word_spans):
+        word_idx_list = []
+        for word_idx, (_, start, end) in enumerate(word_spans):
+            if end >= char_start:
+                if start <= char_end:
+                    word_idx_list.append(word_idx)
+                else:
+                    break
+        
+        if word_idx_list:
+            word_start = word_idx_list[0]
+            word_end = word_idx_list[-1]
+        else:
+            word_start = -1
+            word_end = -1
+        
+        return word_start, word_end
+    
+    def _search_best_span(self,
+                          tokens,
+                          ground_truth):
+        pass
+    
     def _get_question_text(self,
                            history,
                            question):
@@ -228,34 +278,23 @@ class CoqaPipeline(object):
         
         return " ".join(question_tokens)
     
-    def _align_answer_span(self,
-                           span_start,
-                           span_end,
-                           paragraph_text):
-        span_len = span_end - span_start
-        span_text = paragraph_text[span_start:span_end]
-        span_start += span_len - len(span_text.lstrip())
-        span_end -= span_len - len(span_text.rstrip())
-        
-        return span_start, span_end
-    
     def _find_answer_span(self,
-                          input_text,
-                          span_text,
-                          span_start,
-                          span_end):
-        idx = span_text.find(input_text)
-        span_start += idx
-        span_end = span_start + len(input_text)
+                          answer_text,
+                          rationale_text,
+                          rationale_start,
+                          rationale_end):
+        idx = rationale_text.find(answer_text)
+        answer_start = rationale_start + idx
+        answer_end = answer_start + len(answer_text)
         
-        return span_start, span_end
+        return answer_start, answer_end
     
     def _match_answer_span(self,
-                           input_text,
-                           span_start,
-                           span_end,
+                           answer_text,
+                           rationale_start,
+                           rationale_end,
                            paragraph_text):
-        return span_start, span_end
+        pass
     
     def _get_answer_span(self,
                          answer,
@@ -284,7 +323,7 @@ class CoqaPipeline(object):
     
     def _get_answer_type(self,
                          answer):
-        norm_text = eval_coqa_v1.CoQAEvaluator.normalize_answer(answer["input_text"])
+        norm_text = CoQAEvaluator.normalize_answer(answer["input_text"])
         
         if norm_text == "unknown" or "bad_turn" in answer or (answer["span_start"] == -1 and answer["span_end"] == -1):
             return "unknown"
