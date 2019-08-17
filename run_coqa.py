@@ -257,10 +257,10 @@ class CoqaPipeline(object):
                           answer_tokens):
         best_f1 = 0.0
         best_start, best_end = -1, -1
-        search_index = [idx for idx in range(len(context_tokens)) if context_tokens[idx] in answer_tokens]
+        search_index = [idx for idx in range(len(context_tokens)) if context_tokens[idx][0] in answer_tokens]
         for i in range(len(search_index)):
             for j in range(i, len(search_index)):
-                candidate_tokens = [context_tokens[k] for k in range(search_index[i], search_index[j]+1) if context_tokens[k]]
+                candidate_tokens = [context_tokens[k][0] for k in range(search_index[i], search_index[j]+1) if context_tokens[k][0]]
                 common = collections.Counter(candidate_tokens) & collections.Counter(answer_tokens)
                 num_common = sum(common.values())
                 if num_common > 0:
@@ -269,8 +269,8 @@ class CoqaPipeline(object):
                     f1 = (2 * precision * recall) / (precision + recall)
                     if f1 > best_f1:
                         best_f1 = f1
-                        best_start = context_tokens[search_index[i]][0]
-                        best_end = context_tokens[search_index[j]][1]
+                        best_start = context_tokens[search_index[i]][1]
+                        best_end = context_tokens[search_index[j]][2]
         
         return best_f1, best_start, best_end
     
@@ -356,7 +356,7 @@ class CoqaPipeline(object):
             answer_text = ""
             is_skipped = True
         else:
-            answer_text = paragraph_text[span_start:span_end]
+            answer_text = paragraph_text[span_start:span_end+1]
             is_skipped = False
         
         return answer_text, span_start, span_end, is_skipped
@@ -400,7 +400,7 @@ class CoqaPipeline(object):
                 else:
                     start_position = -1
                     orig_answer_text = ""
-
+                
                 is_impossible = (answer_type == "unknown")
                 
                 example = InputExample(
