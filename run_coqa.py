@@ -196,7 +196,7 @@ class CoqaPipeline(object):
         data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
-        example_list = [example for example in example_list if not example_list.is_skipped]
+        example_list = [example for example in example_list if not example.is_skipped]
         return example_list
     
     def get_dev_examples(self):
@@ -699,7 +699,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if is_unk or is_yes or is_no:
+        if example.answer_type in ["unknown", "yes", "no"]:
             tokenized_start_token_pos = tokenized_end_token_pos = -1
         else:
             raw_start_char_pos = example.start_position
@@ -797,9 +797,9 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            is_unk = example.is_unk
-            is_yes = example.is_yes
-            is_no = example.is_no
+            is_unk = (example.answer_type == "unknown")
+            is_yes = (example.answer_type == "yes")
+            is_no = (example.answer_type == "no")
             if is_unk or is_yes or is_no:
                 start_position = cls_index
                 end_position = cls_index
@@ -1139,11 +1139,12 @@ class XLNetModelBuilder(object):
                     predicts["end_index"] = end_top_index
             
             with tf.variable_scope("unk_answer", reuse=tf.AUTO_REUSE):
-                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
-                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
+                unk_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
+                unk_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
                 
-                unk_answer_result = tf.matmul(cls_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
-                unk_answer_result = tf.squeeze(tf.concat([feat_result, unk_answer_result], axis=-1), axis=1) # [b,1,h], [b,1,h] --> [b,2h]
+                unk_answer_result = tf.matmul(unk_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
+                unk_answer_result = tf.concat([unk_feat_result, unk_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
+                unk_answer_result = tf.squeeze(unk_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
                 unk_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
                 
                 unk_answer_result = tf.layers.dense(unk_answer_result, units=self.model_config.d_model, activation=tf.tanh,
@@ -1163,11 +1164,12 @@ class XLNetModelBuilder(object):
                 predicts["unk_answer_prob"] = unk_answer_prob
             
             with tf.variable_scope("yes_answer", reuse=tf.AUTO_REUSE):
-                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
-                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
+                yes_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
+                yes_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
                 
-                yes_answer_result = tf.matmul(cls_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
-                yes_answer_result = tf.squeeze(tf.concat([feat_result, yes_answer_result], axis=-1), axis=1) # [b,1,h], [b,1,h] --> [b,2h]
+                yes_answer_result = tf.matmul(yes_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
+                yes_answer_result = tf.concat([yes_feat_result, yes_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
+                yes_answer_result = tf.squeeze(yes_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
                 yes_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
                 
                 yes_answer_result = tf.layers.dense(yes_answer_result, units=self.model_config.d_model, activation=tf.tanh,
@@ -1187,11 +1189,12 @@ class XLNetModelBuilder(object):
                 predicts["yes_answer_prob"] = yes_answer_prob
             
             with tf.variable_scope("no_answer", reuse=tf.AUTO_REUSE):
-                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
-                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
+                no_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                  # [b] --> [b,1,l]
+                no_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                 # [b,l], [b,l,h] --> [b,1,h]
                 
-                no_answer_result = tf.matmul(cls_index, output_result)                                      # [b,1,l], [b,l,h] --> [b,1,h]
-                no_answer_result = tf.squeeze(tf.concat([feat_result, no_answer_result], axis=-1), axis=1)   # [b,1,h], [b,1,h] --> [b,2h]
+                no_answer_result = tf.matmul(no_cls_index, output_result)                                   # [b,1,l], [b,l,h] --> [b,1,h]
+                no_answer_result = tf.concat([no_feat_result, no_answer_result], axis=-1)                  # [b,1,h], [b,1,h] --> [b,1,2h]
+                no_answer_result = tf.squeeze(no_answer_result, axis=1)                                              # [b,1,2h] --> [b,2h]
                 no_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
                 
                 no_answer_result = tf.layers.dense(no_answer_result, units=self.model_config.d_model, activation=tf.tanh,
