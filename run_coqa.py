@@ -102,8 +102,7 @@ class InputExample(object):
                  orig_answer_text=None,
                  start_position=None,
                  answer_type=None,
-                 is_skipped=False,
-                 is_impossible=False):
+                 is_skipped=False):
         self.qas_id = qas_id
         self.question_text = question_text
         self.paragraph_text = paragraph_text
@@ -111,7 +110,6 @@ class InputExample(object):
         self.start_position = start_position
         self.answer_type=answer_type
         self.is_skipped=is_skipped
-        self.is_impossible = is_impossible
     
     def __str__(self):
         return self.__repr__()
@@ -123,7 +121,8 @@ class InputExample(object):
         if self.start_position >= 0:
             s += ", start_position: %d" % (self.start_position)
             s += ", orig_answer_text: %s" % (prepro_utils.printable_text(self.orig_answer_text))
-            s += ", is_impossible: %r" % (self.is_impossible)
+            s += ", answer_type: %s" % (prepro_utils.printable_text(self.answer_type))
+            s += ", is_skipped: %r" % (self.is_skipped)
         return "[{0}]\n".format(s)
 
 class InputFeatures(object):
@@ -143,7 +142,9 @@ class InputFeatures(object):
                  para_length,
                  start_position=None,
                  end_position=None,
-                 is_impossible=None):
+                 is_unk=None,
+                 is_yes=None,
+                 is_no=None):
         self.unique_id = unique_id
         self.qas_id = qas_id
         self.doc_idx = doc_idx
@@ -158,19 +159,25 @@ class InputFeatures(object):
         self.para_length = para_length
         self.start_position = start_position
         self.end_position = end_position
-        self.is_impossible = is_impossible
+        self.is_unk = is_unk
+        self.is_yes = is_yes
+        self.is_no = is_no
 
 class OutputResult(object):
     """A single CoQA result."""
     def __init__(self,
                  unique_id,
-                 answer_prob,
+                 unk_answer_prob,
+                 yes_answer_prob,
+                 no_answer_prob,
                  start_prob,
                  start_index,
                  end_prob,
                  end_index):
         self.unique_id = unique_id
-        self.answer_prob = answer_prob
+        self.unk_answer_prob = unk_answer_prob
+        self.yes_answer_prob = yes_answer_prob
+        self.no_answer_prob = no_answer_prob
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
@@ -188,14 +195,15 @@ class CoqaPipeline(object):
         """Gets a collection of `InputExample`s for the train set."""
         data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
-        example_list = self._get_example(data_list, True)
+        example_list = self._get_example(data_list)
+        example_list = [example for example in example_list if not example_list.is_skipped]
         return example_list
     
     def get_dev_examples(self):
         """Gets a collection of `InputExample`s for the dev set."""
         data_path = os.path.join(self.data_dir, "dev-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
-        example_list = self._get_example(data_list, False)
+        example_list = self._get_example(data_list)
         return example_list
     
     def _read_json(self,
@@ -374,8 +382,7 @@ class CoqaPipeline(object):
         return "span"
     
     def _get_example(self,
-                     data_list,
-                     is_training):
+                     data_list):
         examples = []
         for data in data_list:
             data_id = data["id"]
@@ -401,8 +408,6 @@ class CoqaPipeline(object):
                     start_position = -1
                     orig_answer_text = ""
                 
-                is_impossible = (answer_type == "unknown")
-                
                 example = InputExample(
                     qas_id=qas_id,
                     question_text=question_text,
@@ -410,8 +415,7 @@ class CoqaPipeline(object):
                     orig_answer_text=orig_answer_text,
                     start_position=start_position,
                     answer_type=answer_type,
-                    is_skipped=is_skipped,
-                    is_impossible=is_impossible)
+                    is_skipped=is_skipped)
 
                 examples.append(example)
         
@@ -636,7 +640,6 @@ class XLNetExampleProcessor(object):
     
     def convert_coqa_example(self,
                              example,
-                             is_training=True,
                              logging=False):
         """Converts a single `InputExample` into a single `InputFeatures`."""
         query_tokens = self.tokenizer.tokenize(example.question_text)
@@ -695,20 +698,17 @@ class XLNetExampleProcessor(object):
             raw_end_pos = self._convert_tokenized_index(tokenized2raw_char_index, end_pos, N, is_start=False)
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
-
-        if is_training:
-            if not example.is_impossible:
-                raw_start_char_pos = example.start_position
-                raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
-                tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
-                tokenized_end_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_end_char_pos, is_start=False)
-                tokenized_start_token_pos = char2token_index[tokenized_start_char_pos]
-                tokenized_end_token_pos = char2token_index[tokenized_end_char_pos]
-                assert tokenized_start_token_pos <= tokenized_end_token_pos
-            else:
-                tokenized_start_token_pos = tokenized_end_token_pos = -1
+        
+        if is_unk or is_yes or is_no:
+            tokenized_start_token_pos = tokenized_end_token_pos = -1
         else:
-            tokenized_start_token_pos = tokenized_end_token_pos = None
+            raw_start_char_pos = example.start_position
+            raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
+            tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
+            tokenized_end_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_end_char_pos, is_start=False)
+            tokenized_start_token_pos = char2token_index[tokenized_start_char_pos]
+            tokenized_end_token_pos = char2token_index[tokenized_end_char_pos]
+            assert tokenized_start_token_pos <= tokenized_end_token_pos
         
         # The -3 accounts for [CLS], [SEP] and [SEP]
         max_para_length = self.max_seq_length - len(query_tokens) - 3
@@ -797,22 +797,22 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            is_impossible = example.is_impossible
-            if is_training:
-                if not is_impossible:
-                    # For training, if our document chunk does not contain an annotation, set default values.
-                    doc_start = doc_span["start"]
-                    doc_end = doc_start + doc_span["length"] - 1
-                    if tokenized_start_token_pos < doc_start or tokenized_end_token_pos > doc_end:
-                        start_position = 0
-                        end_position = 0
-                        is_impossible = True
-                    else:
-                        start_position = tokenized_start_token_pos - doc_start
-                        end_position = tokenized_end_token_pos - doc_start
-                else:
+            is_unk = example.is_unk
+            is_yes = example.is_yes
+            is_no = example.is_no
+            if is_unk or is_yes or is_no:
+                start_position = cls_index
+                end_position = cls_index
+            else:
+                doc_start = doc_span["start"]
+                doc_end = doc_start + doc_span["length"] - 1
+                if tokenized_start_token_pos < doc_start or tokenized_end_token_pos > doc_end:
                     start_position = cls_index
                     end_position = cls_index
+                    is_unk = True
+                else:
+                    start_position = tokenized_start_token_pos - doc_start
+                    end_position = tokenized_end_token_pos - doc_start
             
             if logging:
                 tf.logging.info("*** Example ***")
@@ -826,16 +826,15 @@ class XLNetExampleProcessor(object):
                 tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
                 tf.logging.info("p_mask: %s" % " ".join([str(x) for x in p_mask]))
                 tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-                if is_training:
-                    if not is_impossible:
-                        tf.logging.info("start_position: %s" % str(start_position))
-                        tf.logging.info("end_position: %s" % str(end_position))
-                        answer_tokens = input_tokens[start_position:end_position+1]
-                        answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
-                        tf.logging.info("answer_text: %s" % answer_text)
-                    else:
-                        tf.logging.info("impossible example")
-                
+                if is_unk or is_yes or is_no:
+                    tf.logging.info("unknown or yes/no example")
+                else:
+                    tf.logging.info("start_position: %s" % str(start_position))
+                    tf.logging.info("end_position: %s" % str(end_position))
+                    answer_tokens = input_tokens[start_position:end_position+1]
+                    answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
+                    tf.logging.info("answer_text: %s" % answer_text)
+            
             feature = InputFeatures(
                 unique_id=self.unique_id,
                 qas_id=example.qas_id,
@@ -851,7 +850,9 @@ class XLNetExampleProcessor(object):
                 para_length=doc_para_length,
                 start_position=start_position,
                 end_position=end_position,
-                is_impossible=is_impossible)
+                is_unk=is_unk,
+                is_yes=is_yes,
+                is_no=is_no)
             
             feature_list.append(feature)
             self.unique_id += 1
@@ -859,23 +860,21 @@ class XLNetExampleProcessor(object):
         return feature_list
     
     def convert_examples_to_features(self,
-                                     examples,
-                                     is_training=True):
+                                     examples):
         """Convert a set of `InputExample`s to a list of `InputFeatures`."""
         features = []
         for (idx, example) in enumerate(examples):
             if idx % 1000 == 0:
                 tf.logging.info("Writing example %d of %d" % (idx, len(examples)))
 
-            feature_list = self.convert_coqa_example(example, is_training, logging=(idx < 20))
+            feature_list = self.convert_coqa_example(example, logging=(idx < 20))
             features.extend(feature_list)
 
         return features
     
     def save_features_as_tfrecord(self,
                                   features,
-                                  output_file,
-                                  is_training=True):
+                                  output_file):
         """Save a set of `InputFeature`s to a TFRecord file."""
         def create_int_feature(values):
             return tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
@@ -893,10 +892,11 @@ class XLNetExampleProcessor(object):
                 features["segment_ids"] = create_int_feature(feature.segment_ids)
                 features["cls_index"] = create_int_feature([feature.cls_index])
                 
-                if is_training == True:
-                    features["start_position"] = create_int_feature([feature.start_position])
-                    features["end_position"] = create_int_feature([feature.end_position])
-                    features["is_impossible"] = create_float_feature([1 if feature.is_impossible else 0])
+                features["start_position"] = create_int_feature([feature.start_position])
+                features["end_position"] = create_int_feature([feature.end_position])
+                features["is_unk"] = create_float_feature([1 if feature.is_unk else 0])
+                features["is_yes"] = create_float_feature([1 if feature.is_yes else 0])
+                features["is_no"] = create_float_feature([1 if feature.is_no else 0])
                 
                 tf_example = tf.train.Example(features=tf.train.Features(feature=features))
                 writer.write(tf_example.SerializeToString())
@@ -940,7 +940,9 @@ class XLNetInputBuilder(object):
         if is_training:
             name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["end_position"] = tf.FixedLenFeature([], tf.int64)
-            name_to_features["is_impossible"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["is_unk"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["is_yes"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["is_no"] = tf.FixedLenFeature([], tf.float32)
         
         def _decode_record(record,
                            name_to_features):
@@ -1046,7 +1048,9 @@ class XLNetModelBuilder(object):
                       cls_index,
                       start_positions=None,
                       end_positions=None,
-                      is_impossible=None):
+                      is_unk=None,
+                      is_yes=None,
+                      is_no=None):
         """Creates XLNet-CoQA model"""
         model = xlnet.XLNetModel(
             xlnet_config=self.model_config,
@@ -1134,29 +1138,77 @@ class XLNetModelBuilder(object):
                     predicts["end_prob"] = end_top_prob
                     predicts["end_index"] = end_top_index
             
-            with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
+            with tf.variable_scope("unk_answer", reuse=tf.AUTO_REUSE):
                 cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
                 feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
                 
-                answer_result = tf.matmul(cls_index, output_result)                                         # [b,1,l], [b,l,h] --> [b,1,h]
-                answer_result = tf.squeeze(tf.concat([feat_result, answer_result], axis=-1), axis=1)         # [b,1,h], [b,1,h] --> [b,2h]
-                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
+                unk_answer_result = tf.matmul(cls_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
+                unk_answer_result = tf.squeeze(tf.concat([feat_result, unk_answer_result], axis=-1), axis=1) # [b,1,h], [b,1,h] --> [b,2h]
+                unk_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
                 
-                answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.tanh,
+                unk_answer_result = tf.layers.dense(unk_answer_result, units=self.model_config.d_model, activation=tf.tanh,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_modeling")         # [b,2h] --> [b,h]
                 
-                answer_result = tf.layers.dropout(answer_result,
+                unk_answer_result = tf.layers.dropout(unk_answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                answer_result = tf.layers.dense(answer_result, units=1, activation=None,
+                unk_answer_result = tf.layers.dense(unk_answer_result, units=1, activation=None,
                     use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,1]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_project")           # [b,h] --> [b,1]
                 
-                answer_result = tf.squeeze(answer_result, axis=-1)                                                         # [b,1] --> [b]
-                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                           # [b], [b] --> [b]
-                answer_prob = tf.sigmoid(answer_result)                                                                              # [b]
-                predicts["answer_prob"] = answer_prob
+                unk_answer_result = tf.squeeze(unk_answer_result, axis=-1)                                                 # [b,1] --> [b]
+                unk_answer_result = self._generate_masked_data(unk_answer_result, unk_answer_result_mask)               # [b], [b] --> [b]
+                unk_answer_prob = tf.sigmoid(unk_answer_result)                                                                      # [b]
+                predicts["unk_answer_prob"] = unk_answer_prob
+            
+            with tf.variable_scope("yes_answer", reuse=tf.AUTO_REUSE):
+                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
+                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
+                
+                yes_answer_result = tf.matmul(cls_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
+                yes_answer_result = tf.squeeze(tf.concat([feat_result, yes_answer_result], axis=-1), axis=1) # [b,1,h], [b,1,h] --> [b,2h]
+                yes_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
+                
+                yes_answer_result = tf.layers.dense(yes_answer_result, units=self.model_config.d_model, activation=tf.tanh,
+                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_modeling")         # [b,2h] --> [b,h]
+                
+                yes_answer_result = tf.layers.dropout(yes_answer_result,
+                    rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
+                
+                yes_answer_result = tf.layers.dense(yes_answer_result, units=1, activation=None,
+                    use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_project")           # [b,h] --> [b,1]
+                
+                yes_answer_result = tf.squeeze(yes_answer_result, axis=-1)                                                 # [b,1] --> [b]
+                yes_answer_result = self._generate_masked_data(yes_answer_result, yes_answer_result_mask)               # [b], [b] --> [b]
+                yes_answer_prob = tf.sigmoid(yes_answer_result)                                                                      # [b]
+                predicts["yes_answer_prob"] = yes_answer_prob
+            
+            with tf.variable_scope("no_answer", reuse=tf.AUTO_REUSE):
+                cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                     # [b] --> [b,1,l]
+                feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                    # [b,l], [b,l,h] --> [b,1,h]
+                
+                no_answer_result = tf.matmul(cls_index, output_result)                                      # [b,1,l], [b,l,h] --> [b,1,h]
+                no_answer_result = tf.squeeze(tf.concat([feat_result, no_answer_result], axis=-1), axis=1)   # [b,1,h], [b,1,h] --> [b,2h]
+                no_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
+                
+                no_answer_result = tf.layers.dense(no_answer_result, units=self.model_config.d_model, activation=tf.tanh,
+                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_modeling")          # [b,2h] --> [b,h]
+                
+                no_answer_result = tf.layers.dropout(no_answer_result,
+                    rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
+                
+                no_answer_result = tf.layers.dense(no_answer_result, units=1, activation=None,
+                    use_bias=False, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_project")            # [b,h] --> [b,1]
+                
+                no_answer_result = tf.squeeze(no_answer_result, axis=-1)                                                   # [b,1] --> [b]
+                no_answer_result = self._generate_masked_data(no_answer_result, no_answer_result_mask)                  # [b], [b] --> [b]
+                no_answer_prob = tf.sigmoid(no_answer_result)                                                                        # [b]
+                predicts["no_answer_prob"] = no_answer_prob
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
@@ -1167,14 +1219,28 @@ class XLNetModelBuilder(object):
                     end_label = end_positions                                                                                        # [b]
                     end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
-                    loss += tf.reduce_mean(start_loss + end_loss) * 0.5
+                    loss += tf.reduce_mean(start_loss + end_loss)
                     
-                    if is_impossible is not None:
-                        answer_label = is_impossible                                                                                 # [b]
-                        answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                             # [b,l] --> [b]
-                        answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-                            labels=answer_label * answer_label_mask, logits=answer_result)                                           # [b]
-                        loss += tf.reduce_mean(answer_loss) * 0.5
+                    if is_unk is not None:
+                        unk_answer_label = is_unk                                                                                    # [b]
+                        unk_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                         # [b,l] --> [b]
+                        unk_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+                            labels=unk_answer_label * unk_answer_label_mask, logits=unk_answer_result)                               # [b]
+                        loss += tf.reduce_mean(unk_answer_loss)
+                    
+                    if is_yes is not None:
+                        yes_answer_label = is_yes                                                                                    # [b]
+                        yes_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                         # [b,l] --> [b]
+                        yes_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+                            labels=yes_answer_label * yes_answer_label_mask, logits=yes_answer_result)                               # [b]
+                        loss += tf.reduce_mean(yes_answer_loss)
+                    
+                    if is_no is not None:
+                        no_answer_label = is_no                                                                                      # [b]
+                        no_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                          # [b,l] --> [b]
+                        no_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+                            labels=no_answer_label * no_answer_label_mask, logits=no_answer_result)                                  # [b]
+                        loss += tf.reduce_mean(no_answer_loss)
         
         return loss, predicts
     
@@ -1201,14 +1267,18 @@ class XLNetModelBuilder(object):
             if is_training:
                 start_position = features["start_position"]
                 end_position = features["end_position"]
-                is_impossible = features["is_impossible"]
+                is_unk = features["is_unk"]
+                is_yes = features["is_yes"]
+                is_no = features["is_no"]
             else:
                 start_position = None
                 end_position = None
-                is_impossible = None
+                is_unk = None
+                is_yes = None
+                is_no = None
 
             loss, predicts = self._create_model(is_training, input_ids, input_mask,
-                p_mask, segment_ids, cls_index, start_position, end_position, is_impossible)
+                p_mask, segment_ids, cls_index, start_position, end_position, is_unk, is_yes, is_no)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
@@ -1225,7 +1295,9 @@ class XLNetModelBuilder(object):
                     mode=mode,
                     predictions={
                         "unique_id": unique_id,
-                        "answer_prob": predicts["answer_prob"],
+                        "unk_answer_prob": predicts["unk_answer_prob"],
+                        "yes_answer_prob": predicts["yes_answer_prob"],
+                        "no_answer_prob": predicts["no_answer_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
@@ -1307,7 +1379,9 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_answer_prob = MAX_FLOAT
+            example_unk_answer_prob = MAX_FLOAT
+            example_yes_answer_prob = MAX_FLOAT
+            example_no_answer_prob = MAX_FLOAT
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1316,7 +1390,9 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_answer_prob = min(example_answer_prob, float(example_result.answer_prob))
+                example_unk_answer_prob = min(example_unk_answer_prob, float(example_result.unk_answer_prob))
+                example_yes_answer_prob = min(example_yes_answer_prob, float(example_result.yes_answer_prob))
+                example_no_answer_prob = min(example_no_answer_prob, float(example_result.no_answer_prob))
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
                     start_index = example_result.start_index[i]
@@ -1381,7 +1457,9 @@ class XLNetPredictProcessor(object):
             
             predict_summary_list.append({
                 "qas_id": example.qas_id,
-                "answer_prob": example_answer_prob,
+                "unk_answer_prob": example_unk_answer_prob,
+                "yes_answer_prob": example_yes_answer_prob,
+                "no_answer_prob": example_no_answer_prob,
                 "start_prob": example_best_predict["start_prob"],
                 "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"]
@@ -1389,7 +1467,9 @@ class XLNetPredictProcessor(object):
                                           
             predict_detail_list.append({
                 "qas_id": example.qas_id,
-                "answer_prob": example_answer_prob,
+                "unk_answer_prob": example_unk_answer_prob,
+                "yes_answer_prob": example_yes_answer_prob,
+                "no_answer_prob": example_no_answer_prob,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts,
             })
@@ -1449,9 +1529,9 @@ def main(_):
         
         train_record_file = os.path.join(FLAGS.output_dir, "train-{0}.tfrecord".format(task_name))
         if not os.path.exists(train_record_file) or FLAGS.overwrite_data:
-            train_features = example_processor.convert_examples_to_features(train_examples, True)
+            train_features = example_processor.convert_examples_to_features(train_examples)
             np.random.shuffle(train_features)
-            example_processor.save_features_as_tfrecord(train_features, train_record_file, True)
+            example_processor.save_features_as_tfrecord(train_features, train_record_file)
         
         train_input_fn = XLNetInputBuilder.get_input_fn(train_record_file, FLAGS.max_seq_length, True, True, FLAGS.shuffle_buffer)
         estimator.train(input_fn=train_input_fn, max_steps=FLAGS.train_steps)
@@ -1466,8 +1546,8 @@ def main(_):
         predict_record_file = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
         predict_pickle_file = os.path.join(FLAGS.output_dir, "dev-{0}.pkl".format(task_name))
         if not os.path.exists(predict_record_file) or not os.path.exists(predict_pickle_file) or FLAGS.overwrite_data:
-            predict_features = example_processor.convert_examples_to_features(predict_examples, False)
-            example_processor.save_features_as_tfrecord(predict_features, predict_record_file, False)
+            predict_features = example_processor.convert_examples_to_features(predict_examples)
+            example_processor.save_features_as_tfrecord(predict_features, predict_record_file)
             example_processor.save_features_as_pickle(predict_features, predict_pickle_file)
         else:
             predict_features = example_processor.load_features_from_pickle(predict_pickle_file)
@@ -1477,7 +1557,9 @@ def main(_):
         
         predict_results = [OutputResult(
             unique_id=result["unique_id"],
-            answer_prob=result["answer_prob"],
+            unk_answer_prob=result["unk_answer_prob"],
+            yes_answer_prob=result["yes_answer_prob"],
+            no_answer_prob=result["no_answer_prob"],
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
