@@ -699,7 +699,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if example.answer_type in ["unknown", "yes", "no"]:
+        if example.answer_type in ["unknown", "yes", "no"] or example.is_skipped:
             tokenized_start_token_pos = tokenized_end_token_pos = -1
         else:
             raw_start_char_pos = example.start_position
