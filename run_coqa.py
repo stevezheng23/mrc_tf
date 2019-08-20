@@ -294,10 +294,11 @@ class CoqaPipeline(object):
                               history,
                               question,
                               answer,
-                              answer_type):
+                              answer_type,
+                              is_skipped):
         question_tokens = [history] if history else []
         
-        if answer_type != "unknown":
+        if answer_type != "unknown" or is_skipped:
             question_tokens.extend(['<s>'] + question["input_text"].split(' '))
             question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
         
@@ -399,7 +400,7 @@ class CoqaPipeline(object):
                 answer_type = self._get_answer_type(answer)
                 answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
                 question_text = self._get_question_text(question_history, question)
-                question_history = self._get_question_history(question_history, question, answer, answer_type)
+                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped)
                 
                 if answer_type != "unknown" and not is_skipped:
                     orig_answer_text = answer_text
@@ -797,7 +798,7 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            is_unk = (example.answer_type == "unknown")
+            is_unk = (example.answer_type == "unknown" or example.is_skipped)
             is_yes = (example.answer_type == "yes")
             is_no = (example.answer_type == "no")
             if is_unk or is_yes or is_no:
