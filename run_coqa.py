@@ -377,8 +377,11 @@ class CoqaPipeline(object):
         if norm_text == "unknown" or "bad_turn" in answer or (answer["span_start"] == -1 and answer["span_end"] == -1):
             return "unknown"
         
-        if norm_text in ["yes", "no"]:
-            return norm_text
+        if norm_text in ["yes", "true"]:
+            return "yes"
+        
+        if norm_text in ["no", "none", "false"]:
+            return "yes"
         
         return "span"
     
