@@ -646,6 +646,29 @@ class XLNetExampleProcessor(object):
                              example,
                              logging=False):
         """Converts a single `InputExample` into a single `InputFeatures`."""
+        query_tokens = []
+        qa_texts = example.question_text.split('<s>')
+        for qa_text in qa_texts:
+            qa_text = qa_text.strip()
+            if not qa_text:
+                continue
+            
+            query_tokens.append('<s>')
+            
+            qa_items = qa_text.split('</s>')
+            if len(qa_items) < 2:
+                continue
+            
+            q_text = qa_items[0].strip()
+            q_tokens = self.tokenizer.tokenize(q_text)
+            query_tokens.extend(q_tokens)
+            
+            query_tokens.append('</s>')
+            
+            a_text = qa_items[1].strip()
+            a_tokens = self.tokenizer.tokenize(a_text)
+            query_tokens.extend(a_tokens)
+        
         query_tokens = self.tokenizer.tokenize(example.question_text)
         if len(query_tokens) > self.max_query_length:
             query_tokens = query_tokens[-self.max_query_length:]
@@ -830,6 +853,9 @@ class XLNetExampleProcessor(object):
                 tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
                 tf.logging.info("p_mask: %s" % " ".join([str(x) for x in p_mask]))
                 tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+                printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
+                tf.logging.info("input_tokens: %s" % input_tokens)
+                
                 if is_unk or is_yes or is_no:
                     tf.logging.info("unknown or yes/no example")
                 else:
