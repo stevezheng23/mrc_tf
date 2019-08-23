@@ -656,12 +656,15 @@ class XLNetExampleProcessor(object):
             query_tokens.append('<s>')
             
             qa_items = qa_text.split('</s>')
-            if len(qa_items) < 2:
+            if len(qa_items) < 1:
                 continue
             
             q_text = qa_items[0].strip()
             q_tokens = self.tokenizer.tokenize(q_text)
             query_tokens.extend(q_tokens)
+            
+            if len(qa_items) < 2:
+                continue
             
             query_tokens.append('</s>')
             
@@ -669,7 +672,6 @@ class XLNetExampleProcessor(object):
             a_tokens = self.tokenizer.tokenize(a_text)
             query_tokens.extend(a_tokens)
         
-        query_tokens = self.tokenizer.tokenize(example.question_text)
         if len(query_tokens) > self.max_query_length:
             query_tokens = query_tokens[-self.max_query_length:]
         
