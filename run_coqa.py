@@ -902,6 +902,8 @@ class XLNetExampleProcessor(object):
             feature_list = self.convert_coqa_example(example, logging=(idx < 20))
             features.extend(feature_list)
         
+        tf.logging.info("Generate %d features from %d examples" % (len(features), len(examples)))
+        
         return features
     
     def save_features_as_tfrecord(self,
