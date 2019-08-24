@@ -1174,12 +1174,16 @@ class XLNetModelBuilder(object):
             
             with tf.variable_scope("unk_answer", reuse=tf.AUTO_REUSE):
                 unk_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
-                unk_answer_result = tf.squeeze(tf.matmul(unk_cls_index, output_result), axis=1)               # [b,1,l], [b,l,h] --> [b,h]
+                unk_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
+                
+                unk_answer_result = tf.matmul(unk_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
+                unk_answer_result = tf.concat([unk_feat_result, unk_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
+                unk_answer_result = tf.squeeze(unk_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
                 unk_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
                 
                 unk_answer_result = tf.layers.dense(unk_answer_result, units=self.model_config.d_model, activation=tf.relu,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_modeling")          # [b,h] --> [b,h]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_modeling")         # [b,2h] --> [b,h]
                 
                 unk_answer_result = tf.layers.dropout(unk_answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
@@ -1195,12 +1199,16 @@ class XLNetModelBuilder(object):
             
             with tf.variable_scope("yes_answer", reuse=tf.AUTO_REUSE):
                 yes_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
-                yes_answer_result = tf.squeeze(tf.matmul(yes_cls_index, output_result), axis=1)               # [b,1,l], [b,l,h] --> [b,h]
+                yes_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
+                
+                yes_answer_result = tf.matmul(yes_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
+                yes_answer_result = tf.concat([yes_feat_result, yes_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
+                yes_answer_result = tf.squeeze(yes_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
                 yes_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
                 
                 yes_answer_result = tf.layers.dense(yes_answer_result, units=self.model_config.d_model, activation=tf.relu,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_modeling")          # [b,h] --> [b,h]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_modeling")         # [b,2h] --> [b,h]
                 
                 yes_answer_result = tf.layers.dropout(yes_answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
@@ -1216,12 +1224,16 @@ class XLNetModelBuilder(object):
             
             with tf.variable_scope("no_answer", reuse=tf.AUTO_REUSE):
                 no_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                  # [b] --> [b,1,l]
-                no_answer_result = tf.squeeze(tf.matmul(no_cls_index, output_result) , axis=1)                # [b,1,l], [b,l,h] --> [b,h]
+                no_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                 # [b,l], [b,l,h] --> [b,1,h]
+                
+                no_answer_result = tf.matmul(no_cls_index, output_result)                                   # [b,1,l], [b,l,h] --> [b,1,h]
+                no_answer_result = tf.concat([no_feat_result, no_answer_result], axis=-1)                  # [b,1,h], [b,1,h] --> [b,1,2h]
+                no_answer_result = tf.squeeze(no_answer_result, axis=1)                                              # [b,1,2h] --> [b,2h]
                 no_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
                 
                 no_answer_result = tf.layers.dense(no_answer_result, units=self.model_config.d_model, activation=tf.relu,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_modeling")           # [b,h] --> [b,h]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_modeling")          # [b,2h] --> [b,h]
                 
                 no_answer_result = tf.layers.dropout(no_answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
@@ -1405,8 +1417,8 @@ class XLNetPredictProcessor(object):
                 continue
             
             example_unk_answer_prob = MAX_FLOAT
-            example_yes_answer_prob = MIN_FLOAT
-            example_no_answer_prob = MIN_FLOAT
+            example_yes_answer_prob = MAX_FLOAT
+            example_no_answer_prob = MAX_FLOAT
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1416,8 +1428,8 @@ class XLNetPredictProcessor(object):
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
                 example_unk_answer_prob = min(example_unk_answer_prob, float(example_result.unk_answer_prob))
-                example_yes_answer_prob = max(example_yes_answer_prob, float(example_result.yes_answer_prob))
-                example_no_answer_prob = max(example_no_answer_prob, float(example_result.no_answer_prob))
+                example_yes_answer_prob = min(example_yes_answer_prob, float(example_result.yes_answer_prob))
+                example_no_answer_prob = min(example_no_answer_prob, float(example_result.no_answer_prob))
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
                     start_index = example_result.start_index[i]
