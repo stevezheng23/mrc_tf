@@ -1172,80 +1172,51 @@ class XLNetModelBuilder(object):
                     predicts["end_prob"] = end_top_prob
                     predicts["end_index"] = end_top_index
             
-            with tf.variable_scope("unk_answer", reuse=tf.AUTO_REUSE):
-                unk_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
-                unk_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
+            with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
+                answer_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)              # [b] --> [b,1,l]
+                answer_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)             # [b,l], [b,l,h] --> [b,1,h]
+                answer_output_result = tf.matmul(answer_cls_index, output_result)                           # [b,1,l], [b,l,h] --> [b,1,h]
                 
-                unk_answer_result = tf.matmul(unk_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
-                unk_answer_result = tf.concat([unk_feat_result, unk_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
-                unk_answer_result = tf.squeeze(unk_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
-                unk_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
+                answer_result = tf.concat([answer_feat_result, answer_output_result], axis=-1)             # [b,1,h], [b,1,h] --> [b,1,2h]
+                answer_result = tf.squeeze(answer_result, axis=1)                                                    # [b,1,2h] --> [b,2h]
+                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                 
-                unk_answer_result = tf.layers.dense(unk_answer_result, units=self.model_config.d_model, activation=tf.relu,
+                answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.relu,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_modeling")         # [b,2h] --> [b,h]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
                 
-                unk_answer_result = tf.layers.dropout(unk_answer_result,
+                answer_result = tf.layers.dropout(answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                unk_answer_result = tf.layers.dense(unk_answer_result, units=1, activation=None,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_project")           # [b,h] --> [b,1]
+                with tf.variable_scope("unk", reuse=tf.AUTO_REUSE):
+                    unk_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_project")       # [b,h] --> [b,1]
+                    
+                    unk_answer_result = tf.squeeze(unk_answer_result, axis=-1)                                             # [b,1] --> [b]
+                    unk_answer_result = self._generate_masked_data(unk_answer_result, unk_answer_result_mask)           # [b], [b] --> [b]
+                    unk_answer_prob = tf.sigmoid(unk_answer_result)                                                                  # [b]
+                    predicts["unk_answer_prob"] = unk_answer_prob
                 
-                unk_answer_result = tf.squeeze(unk_answer_result, axis=-1)                                                 # [b,1] --> [b]
-                unk_answer_result = self._generate_masked_data(unk_answer_result, unk_answer_result_mask)               # [b], [b] --> [b]
-                unk_answer_prob = tf.sigmoid(unk_answer_result)                                                                      # [b]
-                predicts["unk_answer_prob"] = unk_answer_prob
-            
-            with tf.variable_scope("yes_answer", reuse=tf.AUTO_REUSE):
-                yes_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                 # [b] --> [b,1,l]
-                yes_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                # [b,l], [b,l,h] --> [b,1,h]
+                with tf.variable_scope("yes", reuse=tf.AUTO_REUSE):
+                    yes_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_project")       # [b,h] --> [b,1]
+                    
+                    yes_answer_result = tf.squeeze(yes_answer_result, axis=-1)                                             # [b,1] --> [b]
+                    yes_answer_result = self._generate_masked_data(yes_answer_result, yes_answer_result_mask)           # [b], [b] --> [b]
+                    yes_answer_prob = tf.sigmoid(yes_answer_result)                                                                  # [b]
+                    predicts["yes_answer_prob"] = unk_answer_prob
                 
-                yes_answer_result = tf.matmul(yes_cls_index, output_result)                                 # [b,1,l], [b,l,h] --> [b,1,h]
-                yes_answer_result = tf.concat([yes_feat_result, yes_answer_result], axis=-1)               # [b,1,h], [b,1,h] --> [b,1,2h]
-                yes_answer_result = tf.squeeze(yes_answer_result, axis=1)                                            # [b,1,2h] --> [b,2h]
-                yes_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                # [b,l] --> [b]
-                
-                yes_answer_result = tf.layers.dense(yes_answer_result, units=self.model_config.d_model, activation=tf.relu,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_modeling")         # [b,2h] --> [b,h]
-                
-                yes_answer_result = tf.layers.dropout(yes_answer_result,
-                    rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
-                
-                yes_answer_result = tf.layers.dense(yes_answer_result, units=1, activation=None,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_project")           # [b,h] --> [b,1]
-                
-                yes_answer_result = tf.squeeze(yes_answer_result, axis=-1)                                                 # [b,1] --> [b]
-                yes_answer_result = self._generate_masked_data(yes_answer_result, yes_answer_result_mask)               # [b], [b] --> [b]
-                yes_answer_prob = tf.sigmoid(yes_answer_result)                                                                      # [b]
-                predicts["yes_answer_prob"] = yes_answer_prob
-            
-            with tf.variable_scope("no_answer", reuse=tf.AUTO_REUSE):
-                no_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)                  # [b] --> [b,1,l]
-                no_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)                 # [b,l], [b,l,h] --> [b,1,h]
-                
-                no_answer_result = tf.matmul(no_cls_index, output_result)                                   # [b,1,l], [b,l,h] --> [b,1,h]
-                no_answer_result = tf.concat([no_feat_result, no_answer_result], axis=-1)                  # [b,1,h], [b,1,h] --> [b,1,2h]
-                no_answer_result = tf.squeeze(no_answer_result, axis=1)                                              # [b,1,2h] --> [b,2h]
-                no_answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
-                
-                no_answer_result = tf.layers.dense(no_answer_result, units=self.model_config.d_model, activation=tf.relu,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_modeling")          # [b,2h] --> [b,h]
-                
-                no_answer_result = tf.layers.dropout(no_answer_result,
-                    rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
-                
-                no_answer_result = tf.layers.dense(no_answer_result, units=1, activation=None,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_project")            # [b,h] --> [b,1]
-                
-                no_answer_result = tf.squeeze(no_answer_result, axis=-1)                                                   # [b,1] --> [b]
-                no_answer_result = self._generate_masked_data(no_answer_result, no_answer_result_mask)                  # [b], [b] --> [b]
-                no_answer_prob = tf.sigmoid(no_answer_result)                                                                        # [b]
-                predicts["no_answer_prob"] = no_answer_prob
+                with tf.variable_scope("no", reuse=tf.AUTO_REUSE):
+                    no_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_project")        # [b,h] --> [b,1]
+                    
+                    no_answer_result = tf.squeeze(no_answer_result, axis=-1)                                               # [b,1] --> [b]
+                    no_answer_result = self._generate_masked_data(no_answer_result, no_answer_result_mask)              # [b], [b] --> [b]
+                    no_answer_prob = tf.sigmoid(no_answer_result)                                                                    # [b]
+                    predicts["no_answer_prob"] = no_answer_prob
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
