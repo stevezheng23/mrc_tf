@@ -167,17 +167,17 @@ class OutputResult(object):
     """A single CoQA result."""
     def __init__(self,
                  unique_id,
-                 unk_answer_prob,
-                 yes_answer_prob,
-                 no_answer_prob,
+                 answer_predict_id,
+                 answer_predict_score,
+                 answer_predict_prob,
                  start_prob,
                  start_index,
                  end_prob,
                  end_index):
         self.unique_id = unique_id
-        self.unk_answer_prob = unk_answer_prob
-        self.yes_answer_prob = yes_answer_prob
-        self.no_answer_prob = no_answer_prob
+        self.answer_predict_id = answer_predict_id
+        self.answer_predict_score = answer_predict_score
+        self.answer_predict_prob = answer_predict_prob
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
@@ -1179,7 +1179,7 @@ class XLNetModelBuilder(object):
                 
                 answer_result = tf.concat([answer_feat_result, answer_output_result], axis=-1)             # [b,1,h], [b,1,h] --> [b,1,2h]
                 answer_result = tf.squeeze(answer_result, axis=1)                                                    # [b,1,2h] --> [b,2h]
-                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
+                answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                   # [b,l] --> [b,1]
                 
                 answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.nn.relu,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
@@ -1188,35 +1188,17 @@ class XLNetModelBuilder(object):
                 answer_result = tf.layers.dropout(answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                with tf.variable_scope("unk", reuse=tf.AUTO_REUSE):
-                    unk_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_answer_project")       # [b,h] --> [b,1]
-                    
-                    unk_answer_result = tf.squeeze(unk_answer_result, axis=-1)                                             # [b,1] --> [b]
-                    unk_answer_result = self._generate_masked_data(unk_answer_result, answer_result_mask)               # [b], [b] --> [b]
-                    unk_answer_prob = tf.sigmoid(unk_answer_result)                                                                  # [b]
-                    predicts["unk_answer_prob"] = unk_answer_prob
+                answer_result = tf.layers.dense(answer_result, units=4, activation=None,
+                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,4]
                 
-                with tf.variable_scope("yes", reuse=tf.AUTO_REUSE):
-                    yes_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_answer_project")       # [b,h] --> [b,1]
-                    
-                    yes_answer_result = tf.squeeze(yes_answer_result, axis=-1)                                             # [b,1] --> [b]
-                    yes_answer_result = self._generate_masked_data(yes_answer_result, answer_result_mask)               # [b], [b] --> [b]
-                    yes_answer_prob = tf.sigmoid(yes_answer_result)                                                                  # [b]
-                    predicts["yes_answer_prob"] = unk_answer_prob
-                
-                with tf.variable_scope("no", reuse=tf.AUTO_REUSE):
-                    no_answer_result = tf.layers.dense(answer_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_answer_project")        # [b,h] --> [b,1]
-                    
-                    no_answer_result = tf.squeeze(no_answer_result, axis=-1)                                               # [b,1] --> [b]
-                    no_answer_result = self._generate_masked_data(no_answer_result, answer_result_mask)                 # [b], [b] --> [b]
-                    no_answer_prob = tf.sigmoid(no_answer_result)                                                                    # [b]
-                    predicts["no_answer_prob"] = no_answer_prob
+                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                     # [b,4], [b,1] --> [b,4]
+                answer_predict_prob = tf.nn.softmax(answer_result, axis=-1)                                              # [b,4] --> [b,4]
+                answer_predict_id = tf.cast(tf.argmax(answer_predict_prob, axis=-1), dtype=tf.int32)                       # [b,4] --> [b]
+                answer_predict_score = tf.reduce_max(answer_predict_prob, axis=-1)                                         # [b,4] --> [b]
+                predicts["answer_predict_prob"] = answer_predict_prob
+                predicts["answer_predict_id"] = answer_predict_id
+                predicts["answer_predict_score"] = answer_predict_score
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
@@ -1229,26 +1211,17 @@ class XLNetModelBuilder(object):
                     end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
                     loss += tf.reduce_mean(start_loss + end_loss)
                     
-                    if is_unk is not None:
-                        unk_answer_label = is_unk                                                                                    # [b]
-                        unk_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                         # [b,l] --> [b]
-                        unk_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-                            labels=unk_answer_label * unk_answer_label_mask, logits=unk_answer_result)                               # [b]
-                        loss += tf.reduce_mean(unk_answer_loss)
-                    
-                    if is_yes is not None:
-                        yes_answer_label = is_yes                                                                                    # [b]
-                        yes_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                         # [b,l] --> [b]
-                        yes_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-                            labels=yes_answer_label * yes_answer_label_mask, logits=yes_answer_result)                               # [b]
-                        loss += tf.reduce_mean(yes_answer_loss)
-                    
-                    if is_no is not None:
-                        no_answer_label = is_no                                                                                      # [b]
-                        no_answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                          # [b,l] --> [b]
-                        no_answer_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-                            labels=no_answer_label * no_answer_label_mask, logits=no_answer_result)                                  # [b]
-                        loss += tf.reduce_mean(no_answer_loss)
+                    answer_label = tf.concat([
+                        tf.expand_dims(1 - is_unk, axis=-1),
+                        tf.expand_dims(is_unk, axis=-1),
+                        tf.expand_dims(is_yes, axis=-1),
+                        tf.expand_dims(is_no, axis=-1)], axis=-1)                                           # [b], [b], [b], [b] --> [b,4]
+                    answer_label = tf.cast(tf.argmax(answer_label, axis=-1), dtype=tf.float32)                             # [b,4] --> [b]
+                    answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
+                    answer_label = tf.cast(answer_label * answer_label_mask, dtype=tf.int32)
+                    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=answer_label, logits=answer_result)
+                    answer_loss = tf.reduce_sum(cross_entropy * answer_label_mask) / tf.reduce_sum(answer_label_mask)
+                    loss += answer_loss
         
         return loss, predicts
     
@@ -1303,9 +1276,9 @@ class XLNetModelBuilder(object):
                     mode=mode,
                     predictions={
                         "unique_id": unique_id,
-                        "unk_answer_prob": predicts["unk_answer_prob"],
-                        "yes_answer_prob": predicts["yes_answer_prob"],
-                        "no_answer_prob": predicts["no_answer_prob"],
+                        "answer_predict_id": predicts["answer_predict_id"],
+                        "answer_predict_score": predicts["answer_predict_score"],
+                        "answer_predict_prob": predicts["answer_predict_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
@@ -1387,9 +1360,9 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_unk_answer_prob = MAX_FLOAT
-            example_yes_answer_prob = MAX_FLOAT
-            example_no_answer_prob = MAX_FLOAT
+            example_answer_predict_id = -1
+            example_answer_predict_score = MAX_FLOAT
+            example_answer_predict_prob = []
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1398,9 +1371,11 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_unk_answer_prob = min(example_unk_answer_prob, float(example_result.unk_answer_prob))
-                example_yes_answer_prob = min(example_yes_answer_prob, float(example_result.yes_answer_prob))
-                example_no_answer_prob = min(example_no_answer_prob, float(example_result.no_answer_prob))
+                if example_answer_score > float(example_result.answer_predict_score):
+                    example_answer_predict_id = int(example_result.answer_predict_id)
+                    example_answer_predict_score = float(example_result.answer_predict_score)
+                    example_answer_predict_prob = [float(prob) for prob in example_result.answer_predict_prob]
+                
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
                     start_index = example_result.start_index[i]
@@ -1465,9 +1440,9 @@ class XLNetPredictProcessor(object):
             
             predict_summary_list.append({
                 "qas_id": example.qas_id,
-                "unk_answer_prob": example_unk_answer_prob,
-                "yes_answer_prob": example_yes_answer_prob,
-                "no_answer_prob": example_no_answer_prob,
+                "answer_predict_id": example_answer_predict_id,
+                "answer_predict_score": example_answer_predict_score,
+                "answer_predict_prob": example_answer_predict_prob,
                 "start_prob": example_best_predict["start_prob"],
                 "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"]
@@ -1475,9 +1450,9 @@ class XLNetPredictProcessor(object):
                                           
             predict_detail_list.append({
                 "qas_id": example.qas_id,
-                "unk_answer_prob": example_unk_answer_prob,
-                "yes_answer_prob": example_yes_answer_prob,
-                "no_answer_prob": example_no_answer_prob,
+                "answer_predict_id": example_answer_predict_id,
+                "answer_predict_score": example_answer_predict_score,
+                "answer_predict_prob": example_answer_predict_prob,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts,
             })
@@ -1565,9 +1540,9 @@ def main(_):
         
         predict_results = [OutputResult(
             unique_id=result["unique_id"],
-            unk_answer_prob=result["unk_answer_prob"],
-            yes_answer_prob=result["yes_answer_prob"],
-            no_answer_prob=result["no_answer_prob"],
+            answer_predict_id=result["answer_predict_id"],
+            answer_predict_score=result["answer_predict_score"],
+            answer_predict_prob=result["answer_predict_prob"],
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
