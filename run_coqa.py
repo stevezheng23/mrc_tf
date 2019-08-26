@@ -1125,7 +1125,7 @@ class XLNetModelBuilder(object):
                     end_result = tf.concat([output_result, feat_result], axis=-1)                          # [b,l,h], [b,l,h] --> [b,l,2h]
                     end_result_mask = 1 - p_mask                                                                                   # [b,l]
                     
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.nn.relu,
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
                     
@@ -1152,7 +1152,7 @@ class XLNetModelBuilder(object):
                     end_result_mask = tf.expand_dims(1 - p_mask, axis=1)                                               # [b,l] --> [b,1,l]
                     end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
                     
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.nn.relu,
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
                     
@@ -1180,7 +1180,7 @@ class XLNetModelBuilder(object):
                 answer_result = tf.squeeze(answer_result, axis=1)                                                    # [b,1,2h] --> [b,2h]
                 answer_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                   # [b,l] --> [b,1]
                 
-                answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.nn.relu,
+                answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.tanh,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                     kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_modeling")             # [b,2h] --> [b,h]
                 
