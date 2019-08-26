@@ -18,17 +18,17 @@ def convert_coqa(input_file,
         id = id_items[0]
         turn_id = int(id_items[1])
         
-        predict_id = data["answer_predict_id"]
-        predict_score = data["answer_predict_score"]
+        answer_id = data["answer_id"]
+        answer_score = data["answer_score"]
         
-        predict_text_list = [data["predict_text"], "unknown", "yes", "no"]
-        predict_text = predict_text_list[predict_id]
+        answer_text_list = [data["predict_text"], "unknown", "yes", "no"]
+        answer_text = answer_text_list[answer_id]
         
         output_data.append({
             "id": id,
             "turn_id": turn_id,
-            "answer": predict_text,
-            "score": predict_score
+            "answer": answer_text,
+            "score": answer_score
         })
     
     with open(output_file, "w") as file:
