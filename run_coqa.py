@@ -22,7 +22,6 @@ import function_builder
 import prepro_utils
 import model_utils
 
-MAX_FLOAT = 1e30
 MIN_FLOAT = -1e30
 
 flags = tf.flags
@@ -167,17 +166,17 @@ class OutputResult(object):
     """A single CoQA result."""
     def __init__(self,
                  unique_id,
-                 answer_predict_id,
-                 answer_predict_score,
-                 answer_predict_prob,
+                 answer_id,
+                 answer_score,
+                 answer_prob,
                  start_prob,
                  start_index,
                  end_prob,
                  end_index):
         self.unique_id = unique_id
-        self.answer_predict_id = answer_predict_id
-        self.answer_predict_score = answer_predict_score
-        self.answer_predict_prob = answer_predict_prob
+        self.answer_id = answer_id
+        self.answer_score = answer_score
+        self.answer_prob = answer_prob
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
@@ -1193,12 +1192,12 @@ class XLNetModelBuilder(object):
                     kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,4]
                 
                 answer_result = self._generate_masked_data(answer_result, answer_result_mask)                     # [b,4], [b,1] --> [b,4]
-                answer_predict_prob = tf.nn.softmax(answer_result, axis=-1)                                              # [b,4] --> [b,4]
-                answer_predict_id = tf.cast(tf.argmax(answer_predict_prob, axis=-1), dtype=tf.int32)                       # [b,4] --> [b]
-                answer_predict_score = tf.reduce_max(answer_predict_prob, axis=-1)                                         # [b,4] --> [b]
-                predicts["answer_predict_prob"] = answer_predict_prob
-                predicts["answer_predict_id"] = answer_predict_id
-                predicts["answer_predict_score"] = answer_predict_score
+                answer_prob = tf.nn.softmax(answer_result, axis=-1)                                                      # [b,4] --> [b,4]
+                answer_id = tf.cast(tf.argmax(answer_prob, axis=-1), dtype=tf.int32)                                       # [b,4] --> [b]
+                answer_score = tf.reduce_max(answer_prob, axis=-1)                                                         # [b,4] --> [b]
+                predicts["answer_id"] = answer_id
+                predicts["answer_score"] = answer_score
+                predicts["answer_prob"] = answer_prob
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
@@ -1276,9 +1275,9 @@ class XLNetModelBuilder(object):
                     mode=mode,
                     predictions={
                         "unique_id": unique_id,
-                        "answer_predict_id": predicts["answer_predict_id"],
-                        "answer_predict_score": predicts["answer_predict_score"],
-                        "answer_predict_prob": predicts["answer_predict_prob"],
+                        "answer_id": predicts["answer_id"],
+                        "answer_score": predicts["answer_score"],
+                        "answer_prob": predicts["answer_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
@@ -1360,9 +1359,9 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_answer_predict_id = -1
-            example_answer_predict_score = MAX_FLOAT
-            example_answer_predict_prob = []
+            example_answer_id = -1
+            example_answer_score = MIN_FLOAT
+            example_answer_prob = []
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1371,10 +1370,10 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                if example_answer_score > float(example_result.answer_predict_score):
-                    example_answer_predict_id = int(example_result.answer_predict_id)
-                    example_answer_predict_score = float(example_result.answer_predict_score)
-                    example_answer_predict_prob = [float(prob) for prob in example_result.answer_predict_prob]
+                if example_answer_score < float(example_result.answer_score):
+                    example_answer_id = int(example_result.answer_id)
+                    example_answer_score = float(example_result.answer_score)
+                    example_answer_prob = [float(prob) for prob in example_result.answer_prob]
                 
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
@@ -1440,9 +1439,9 @@ class XLNetPredictProcessor(object):
             
             predict_summary_list.append({
                 "qas_id": example.qas_id,
-                "answer_predict_id": example_answer_predict_id,
-                "answer_predict_score": example_answer_predict_score,
-                "answer_predict_prob": example_answer_predict_prob,
+                "answer_id": example_answer_id,
+                "answer_score": example_answer_score,
+                "answer_prob": example_answer_prob,
                 "start_prob": example_best_predict["start_prob"],
                 "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"]
@@ -1450,9 +1449,9 @@ class XLNetPredictProcessor(object):
                                           
             predict_detail_list.append({
                 "qas_id": example.qas_id,
-                "answer_predict_id": example_answer_predict_id,
-                "answer_predict_score": example_answer_predict_score,
-                "answer_predict_prob": example_answer_predict_prob,
+                "answer_id": example_answer_id,
+                "answer_score": example_answer_score,
+                "answer_prob": example_answer_prob,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts,
             })
@@ -1540,9 +1539,9 @@ def main(_):
         
         predict_results = [OutputResult(
             unique_id=result["unique_id"],
-            answer_predict_id=result["answer_predict_id"],
-            answer_predict_score=result["answer_predict_score"],
-            answer_predict_prob=result["answer_predict_prob"],
+            answer_id=result["answer_id"],
+            answer_score=result["answer_score"],
+            answer_prob=result["answer_prob"],
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
