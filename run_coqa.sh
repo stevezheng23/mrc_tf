@@ -150,6 +150,8 @@ python tool/convert_coqa_v1.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
 --output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json
 
+rm ${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
+
 python tool/eval_coqa_v1.py \
 --data-file=${DATADIR}/dev-${TASKNAME}.json \
 --pred-file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
