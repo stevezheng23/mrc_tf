@@ -380,7 +380,7 @@ class CoqaPipeline(object):
             return "yes"
         
         if norm_text in ["no", "none", "false"]:
-            return "yes"
+            return "no"
         
         return "span"
     
