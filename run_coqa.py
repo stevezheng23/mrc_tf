@@ -1437,23 +1437,30 @@ class XLNetPredictProcessor(object):
             
             example_best_predict = example_top_predicts[0]
             
+            example_question_text = example.question_text.split('<s>')[-1].strip()
+            
             predict_summary_list.append({
                 "qas_id": example.qas_id,
+                "question_text": example_question_text,
+                "label_text": example.orig_answer_text,
                 "answer_id": example_answer_id,
                 "answer_score": example_answer_score,
                 "answer_prob": example_answer_prob,
                 "start_prob": example_best_predict["start_prob"],
                 "end_prob": example_best_predict["end_prob"],
-                "predict_text": example_best_predict["predict_text"]
+                "predict_text": example_best_predict["predict_text"],
+                "predict_score": example_best_predict["predict_score"]
             })
                                           
             predict_detail_list.append({
                 "qas_id": example.qas_id,
+                "question_text": example_question_text,
+                "label_text": example.orig_answer_text,
                 "answer_id": example_answer_id,
                 "answer_score": example_answer_score,
                 "answer_prob": example_answer_prob,
                 "best_predict": example_best_predict,
-                "top_predicts": example_top_predicts,
+                "top_predicts": example_top_predicts
             })
         
         self._write_to_json(predict_summary_list, self.output_summary)
