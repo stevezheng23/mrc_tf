@@ -6,7 +6,7 @@ import numpy as np
 def add_arguments(parser):
     parser.add_argument("--input_file", help="path to input file", required=True)
     parser.add_argument("--output_file", help="path to output file", required=True)
-    parser.add_argument("--answer_threshold", help="threshold of answer", required=False, default=0.9, type=float)
+    parser.add_argument("--answer_threshold", help="threshold of answer", required=False, default=0.1, type=float)
 
 def convert_coqa(input_file,
                  output_file,
@@ -20,20 +20,22 @@ def convert_coqa(input_file,
         id = id_items[0]
         turn_id = int(id_items[1])
         
-        answer_id = data["answer_id"]
-        answer_score = data["answer_score"]
+        prob_list = [data["unk_prob"], data["yes_prob"], data["no_prob"]]
+        answer_list = ["unknown", "yes", "no"]
         
-        if answer_score >= answer_threshold:
-            answer_text = data["predict_text"]
+        prob_idx = np.argmax(prob_list)
+        if prob_list[prob_idx] >= answer_threshold:
+            answer = answer_list[prob_idx]
         else:
-            answer_text_list = ["unknown", "yes", "no"]
-            answer_text = answer_text_list[answer_id]
+            answer = data["predict_text"]
+        
+        score = prob_list[prob_idx]
         
         output_data.append({
             "id": id,
             "turn_id": turn_id,
-            "answer": answer_text,
-            "score": answer_score
+            "answer": answer,
+            "score": score
         })
     
     with open(output_file, "w") as file:
