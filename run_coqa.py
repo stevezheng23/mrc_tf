@@ -1187,14 +1187,14 @@ class XLNetModelBuilder(object):
                 answer_result = tf.layers.dropout(answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                answer_result = tf.layers.dense(answer_result, units=4, activation=None,
+                answer_result = tf.layers.dense(answer_result, units=3, activation=None,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,4]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="answer_project")               # [b,h] --> [b,3]
                 
-                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                     # [b,4], [b,1] --> [b,4]
-                answer_prob = tf.nn.softmax(answer_result, axis=-1)                                                      # [b,4] --> [b,4]
-                answer_id = tf.cast(tf.argmax(answer_prob, axis=-1), dtype=tf.int32)                                       # [b,4] --> [b]
-                answer_score = tf.reduce_max(answer_prob, axis=-1)                                                         # [b,4] --> [b]
+                answer_result = self._generate_masked_data(answer_result, answer_result_mask)                     # [b,3], [b,1] --> [b,3]
+                answer_prob = tf.nn.softmax(answer_result, axis=-1)                                                      # [b,3] --> [b,3]
+                answer_id = tf.cast(tf.argmax(answer_prob, axis=-1), dtype=tf.int32)                                       # [b,3] --> [b]
+                answer_score = tf.reduce_max(answer_prob, axis=-1)                                                         # [b,3] --> [b]
                 predicts["answer_id"] = answer_id
                 predicts["answer_score"] = answer_score
                 predicts["answer_prob"] = answer_prob
@@ -1211,11 +1211,10 @@ class XLNetModelBuilder(object):
                     loss += tf.reduce_mean(start_loss + end_loss)
                     
                     answer_label = tf.concat([
-                        tf.expand_dims(1 - is_unk, axis=-1),
                         tf.expand_dims(is_unk, axis=-1),
                         tf.expand_dims(is_yes, axis=-1),
-                        tf.expand_dims(is_no, axis=-1)], axis=-1)                                           # [b], [b], [b], [b] --> [b,4]
-                    answer_label = tf.cast(tf.argmax(answer_label, axis=-1), dtype=tf.float32)                             # [b,4] --> [b]
+                        tf.expand_dims(is_no, axis=-1)], axis=-1)                                           # [b], [b], [b], [b] --> [b,3]
+                    answer_label = tf.cast(tf.argmax(answer_label, axis=-1), dtype=tf.float32)                             # [b,3] --> [b]
                     answer_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
                     answer_label = tf.cast(answer_label * answer_label_mask, dtype=tf.int32)
                     cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=answer_label, logits=answer_result)

@@ -6,9 +6,11 @@ import numpy as np
 def add_arguments(parser):
     parser.add_argument("--input_file", help="path to input file", required=True)
     parser.add_argument("--output_file", help="path to output file", required=True)
+    parser.add_argument("--answer_threshold", help="threshold of answer", required=False, default=0.9, type=float)
 
 def convert_coqa(input_file,
-                 output_file):
+                 output_file,
+                 answer_threshold):
     with open(input_file, "r") as file:
         input_data = json.load(file)
     
@@ -21,8 +23,11 @@ def convert_coqa(input_file,
         answer_id = data["answer_id"]
         answer_score = data["answer_score"]
         
-        answer_text_list = [data["predict_text"], "unknown", "yes", "no"]
-        answer_text = answer_text_list[answer_id]
+        if answer_score >= answer_threshold:
+            answer_text = data["predict_text"]
+        else:
+            answer_text_list = ["unknown", "yes", "no"]
+            answer_text = answer_text_list[answer_id]
         
         output_data.append({
             "id": id,
@@ -38,4 +43,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     add_arguments(parser)
     args = parser.parse_args()
-    convert_coqa(args.input_file, args.output_file)
+    convert_coqa(args.input_file, args.output_file, args.answer_threshold)
