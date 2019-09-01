@@ -65,25 +65,30 @@ for i in "$@"
       SAVESTEPS="${i#*=}"
       shift
       ;;
+      --answerthreshold=*)
+      ANSWERTHRESHOLD="${i#*=}"
+      shift
+      ;;
     esac
   done
 
-echo "gpu device     = ${GPUDEVICE}"
-echo "num gpus       = ${NUMGPUS}"
-echo "task name      = ${TASKNAME}"
-echo "random seed    = ${RANDOMSEED}"
-echo "predict tag    = ${PREDICTTAG}"
-echo "model dir      = ${MODELDIR}"
-echo "data dir       = ${DATADIR}"
-echo "output dir     = ${OUTPUTDIR}"
-echo "seq len        = ${SEQLEN}"
-echo "query len      = ${QUERYLEN}"
-echo "answer len     = ${ANSWERLEN}"
-echo "batch size     = ${BATCHSIZE}"
-echo "learning rate  = ${LEARNINGRATE}"
-echo "train steps    = ${TRAINSTEPS}"
-echo "warmup steps   = ${WARMUPSTEPS}"
-echo "save steps     = ${SAVESTEPS}"
+echo "gpu device        = ${GPUDEVICE}"
+echo "num gpus          = ${NUMGPUS}"
+echo "task name         = ${TASKNAME}"
+echo "random seed       = ${RANDOMSEED}"
+echo "predict tag       = ${PREDICTTAG}"
+echo "model dir         = ${MODELDIR}"
+echo "data dir          = ${DATADIR}"
+echo "output dir        = ${OUTPUTDIR}"
+echo "seq len           = ${SEQLEN}"
+echo "query len         = ${QUERYLEN}"
+echo "answer len        = ${ANSWERLEN}"
+echo "batch size        = ${BATCHSIZE}"
+echo "learning rate     = ${LEARNINGRATE}"
+echo "train steps       = ${TRAINSTEPS}"
+echo "warmup steps      = ${WARMUPSTEPS}"
+echo "save steps        = ${SAVESTEPS}"
+echo "answer threshold  = ${ANSWERTHRESHOLD}"
 
 alias python=python3
 mkdir ${OUTPUTDIR}
@@ -148,7 +153,8 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
 
 python tool/convert_coqa_v1.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
---output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json
+--output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
+--answer_threshold=${ANSWERTHRESHOLD}
 
 rm ${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
 
