@@ -1272,7 +1272,6 @@ class XLNetModelBuilder(object):
     
     def combine_coqa_result(self,
                             pos_result,
-                            seq_len,
                             unk_result,
                             yes_result,
                             no_result):
