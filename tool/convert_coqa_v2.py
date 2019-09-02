@@ -26,6 +26,10 @@ def convert_coqa(input_file,
         prob_idx = np.argmax(prob_list)
         if prob_list[prob_idx] >= answer_threshold:
             answer = answer_list[prob_idx]
+            if answer == "yes" and "true or false" in data["question_text"].lower():
+                answer = "true"
+            elif answer == "no" and "true or false" in data["question_text"].lower():
+                answer = "false"
         else:
             answer = data["predict_text"]
         

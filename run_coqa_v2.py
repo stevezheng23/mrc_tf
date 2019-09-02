@@ -167,17 +167,11 @@ class OutputResult(object):
     """A single CoQA result."""
     def __init__(self,
                  unique_id,
-                 unk_prob,
-                 yes_prob,
-                 no_prob,
                  start_prob,
                  start_index,
                  end_prob,
                  end_index):
         self.unique_id = unique_id
-        self.unk_prob = unk_prob
-        self.yes_prob = yes_prob
-        self.no_prob = no_prob
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
@@ -1053,6 +1047,43 @@ class XLNetModelBuilder(object):
         """Generate one-hot label"""
         return tf.one_hot(input_data, depth=input_depth, on_value=1.0, off_value=0.0, dtype=tf.float32)
     
+    def _combine_coqa_label(self,
+                            pos_label,
+                            seq_len,
+                            unk_label,
+                            yes_label,
+                            no_label):
+        pos_label = self._generate_onehot_label(pos_label, seq_len)                                                        # [b] --> [b,l]
+        
+        other_label = tf.concat([
+            tf.expand_dims(unk_label, axis=-1),                                                                            # [b] --> [b,1]
+            tf.expand_dims(yes_label, axis=-1),                                                                            # [b] --> [b,1]
+            tf.expand_dims(no_label, axis=-1)                                                                              # [b] --> [b,1]
+        ], axis=-1)                                                                                                # [b],[b],[b] --> [b,3]
+        
+        pos_label_mask = 1 - tf.reduce_max(tf.cast(other_label != 0, dtype=tf.float32), axis=-1, keepdims=True)          # [b,3] --> [b,1]
+        pos_label = pos_label * pos_label_mask                                                                     # [b,l],[b,1] --> [b,l]
+        
+        coqa_label = tf.concat([pos_label, other_label], axis=-1)                                                # [b,l],[b,3] --> [b,l+3]
+        coqa_label = tf.argmax(coqa_label, axis=-1)                                                                      # [b,l+3] --> [b]
+        
+        return coqa_label
+    
+    def _combine_coqa_result(self,
+                             pos_result,
+                             unk_result,
+                             yes_result,
+                             no_result):
+        other_result = tf.concat([
+            tf.expand_dims(unk_result, axis=-1),                                                                           # [b] --> [b,1]
+            tf.expand_dims(yes_result, axis=-1),                                                                           # [b] --> [b,1]
+            tf.expand_dims(no_result, axis=-1)                                                                             # [b] --> [b,1]
+        ], axis=-1)                                                                                                # [b],[b],[b] --> [b,3]
+        
+        coqa_result = tf.concat([pos_result, other_result], axis=-1)                                             # [b,l],[b,3] --> [b,l+3]
+        
+        return coqa_result
+    
     def _compute_loss(self,
                       label,
                       label_mask,
@@ -1099,85 +1130,23 @@ class XLNetModelBuilder(object):
         
         predicts = {}
         with tf.variable_scope("mrc", reuse=tf.AUTO_REUSE):
-            with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
-                start_result = output_result                                                                                     # [b,l,h]
-                start_result_mask = 1 - p_mask                                                                                     # [b,l]
-                
-                start_result = tf.layers.dense(start_result, units=1, activation=None,
+            with tf.variable_scope("base", reuse=tf.AUTO_REUSE):
+                base_result = tf.layers.dense(output_result, units=1, activation=None,
                     use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="start_project")            # [b,l,h] --> [b,l,1]
+                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="base_project")             # [b,l,h] --> [b,l,1]
                 
-                start_result = tf.squeeze(start_result, axis=-1)                                                       # [b,l,1] --> [b,l]
-                start_result = self._generate_masked_data(start_result, start_result_mask)                        # [b,l], [b,l] --> [b,l]
-                start_prob = tf.nn.softmax(start_result, axis=-1)                                                                  # [b,l]
+                base_result = tf.squeeze(base_result, axis=-1)                                                         # [b,l,1] --> [b,l]
+                base_result_mask = 1 - p_mask                                                                                      # [b,l]
                 
-                if not is_training:
-                    start_top_prob, start_top_index = tf.nn.top_k(start_prob, k=FLAGS.start_n_top)                # [b,l] --> [b,k], [b,k]
-                    predicts["start_prob"] = start_top_prob
-                    predicts["start_index"] = start_top_index
-            
-            with tf.variable_scope("end", reuse=tf.AUTO_REUSE):
-                if is_training:
-                    # During training, compute the end logits based on the ground truth of the start position
-                    start_index = self._generate_onehot_label(tf.expand_dims(start_positions, axis=-1), seq_len)         # [b] --> [b,1,l]
-                    feat_result = tf.matmul(start_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
-                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1])                                      # [b,1,h] --> [b,l,h]
-                    
-                    end_result = tf.concat([output_result, feat_result], axis=-1)                          # [b,l,h], [b,l,h] --> [b,l,2h]
-                    end_result_mask = 1 - p_mask                                                                                   # [b,l]
-                    
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
-                    
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
-                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)                # [b,l,h] --> [b,l,h]
-                    
-                    end_result = tf.layers.dense(end_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")          # [b,l,h] --> [b,l,1]
-                    
-                    end_result = tf.squeeze(end_result, axis=-1)                                                       # [b,l,1] --> [b,l]
-                    end_result = self._generate_masked_data(end_result, end_result_mask)                          # [b,l], [b,l] --> [b,l]
-                    end_prob = tf.nn.softmax(end_result, axis=-1)                                                                  # [b,l]
-                else:
-                    # During inference, compute the end logits based on beam search
-                    start_index = self._generate_onehot_label(start_top_index, seq_len)                                # [b,k] --> [b,k,l]
-                    feat_result = tf.matmul(start_index, output_result)                                     # [b,k,l], [b,l,h] --> [b,k,h]
-                    feat_result = tf.expand_dims(feat_result, axis=1)                                              # [b,k,h] --> [b,1,k,h]
-                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1,1])                                # [b,1,k,h] --> [b,l,k,h]
-                    
-                    end_result = tf.expand_dims(output_result, axis=-2)                                            # [b,l,h] --> [b,l,1,h]
-                    end_result = tf.tile(end_result, multiples=[1,1,FLAGS.start_n_top,1])                        # [b,l,1,h] --> [b,l,k,h]
-                    end_result = tf.concat([end_result, feat_result], axis=-1)                       # [b,l,k,h], [b,l,k,h] --> [b,l,k,2h]
-                    end_result_mask = tf.expand_dims(1 - p_mask, axis=1)                                               # [b,l] --> [b,1,l]
-                    end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
-                    
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
-                    
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
-                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
-                    
-                    end_result = tf.layers.dense(end_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,k,h] --> [b,l,k,1]
-                    
-                    end_result = tf.transpose(tf.squeeze(end_result, axis=-1), perm=[0,2,1])                       # [b,l,k,1] --> [b,k,l]
-                    end_result = self._generate_masked_data(end_result, end_result_mask)                    # [b,k,l], [b,k,l] --> [b,k,l]
-                    end_prob = tf.nn.softmax(end_result, axis=-1)                                                                # [b,k,l]
-                    
-                    end_top_prob, end_top_index = tf.nn.top_k(end_prob, k=FLAGS.end_n_top)                  # [b,k,l] --> [b,k,k], [b,k,k]
-                    predicts["end_prob"] = end_top_prob
-                    predicts["end_index"] = end_top_index
+                base_prob = self._generate_masked_data(base_result, base_result_mask)                              # [b,l],[b,l] --> [b,l]
+                base_prob = tf.nn.softmax(base_prob, axis=-1)                                                                      # [b,l]
             
             with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
                 answer_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)              # [b] --> [b,1,l]
-                answer_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)             # [b,l], [b,l,h] --> [b,1,h]
-                answer_output_result = tf.matmul(answer_cls_index, output_result)                           # [b,1,l], [b,l,h] --> [b,1,h]
+                answer_feat_result = tf.matmul(tf.expand_dims(base_prob, axis=1), output_result)               # [b,l],[b,l,h] --> [b,1,h]
+                answer_output_result = tf.matmul(answer_cls_index, output_result)                            # [b,1,l],[b,l,h] --> [b,1,h]
                 
-                answer_result = tf.concat([answer_feat_result, answer_output_result], axis=-1)             # [b,1,h], [b,1,h] --> [b,1,2h]
+                answer_result = tf.concat([answer_feat_result, answer_output_result], axis=-1)              # [b,1,h],[b,1,h] --> [b,1,2h]
                 answer_result = tf.squeeze(answer_result, axis=1)                                                    # [b,1,2h] --> [b,2h]
                 
                 answer_result = tf.layers.dense(answer_result, units=self.model_config.d_model, activation=tf.tanh,
@@ -1191,99 +1160,121 @@ class XLNetModelBuilder(object):
                     unk_result = tf.layers.dense(answer_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_project")              # [b,h] --> [b,1]
-                    unk_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                     
                     unk_result = tf.squeeze(unk_result, axis=-1)                                                           # [b,1] --> [b]
-                    unk_result = self._generate_masked_data(unk_result, unk_result_mask)                                # [b], [b] --> [b]
-                    unk_prob = tf.sigmoid(unk_result)                                                                                # [b]
-                    predicts["unk_prob"] = unk_prob
+                    unk_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                 
                 with tf.variable_scope("yes", reuse=tf.AUTO_REUSE):
                     yes_result = tf.layers.dense(answer_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_project")              # [b,h] --> [b,1]
-                    yes_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                     
                     yes_result = tf.squeeze(yes_result, axis=-1)                                                           # [b,1] --> [b]
-                    yes_result = self._generate_masked_data(yes_result, yes_result_mask)                                # [b], [b] --> [b]
-                    yes_prob = tf.sigmoid(yes_result)                                                                                # [b]
-                    predicts["yes_prob"] = yes_prob
+                    yes_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                 
                 with tf.variable_scope("no", reuse=tf.AUTO_REUSE):
                     no_result = tf.layers.dense(answer_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_project")               # [b,h] --> [b,1]
-                    no_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     
                     no_result = tf.squeeze(no_result, axis=-1)                                                             # [b,1] --> [b]
-                    no_result = self._generate_masked_data(no_result, no_result_mask)                                   # [b], [b] --> [b]
-                    no_prob = tf.sigmoid(no_result)                                                                                  # [b]
-                    predicts["no_prob"] = no_prob
+                    no_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
+            
+            with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
+                start_result = self._combine_coqa_result(base_result, unk_result, yes_result, no_result)   # [b,l],[b],[b],[b] --> [b,l+3]
+                start_result_mask = self._combine_coqa_result(1 - p_mask,
+                    unk_result_mask, yes_result_mask, no_result_mask)                                      # [b,l],[b],[b],[b] --> [b,l+3]
+                
+                start_prob = self._generate_masked_data(start_result, start_result_mask)                     # [b,l+3],[b,l+3] --> [b,l+3]
+                start_prob = tf.nn.softmax(start_prob, axis=-1)                                                                  # [b,l+3]
+                
+                if not is_training:
+                    start_top_prob, start_top_index = tf.nn.top_k(start_prob, k=FLAGS.start_n_top)               # [b,l+3] --> [b,k],[b,k]
+                    predicts["start_prob"] = start_top_prob
+                    predicts["start_index"] = start_top_index
+            
+            with tf.variable_scope("end", reuse=tf.AUTO_REUSE):
+                if is_training:
+                    # During training, compute the end logits based on the ground truth of the start position
+                    start_index = self._generate_onehot_label(tf.expand_dims(start_positions, axis=-1), seq_len)         # [b] --> [b,1,l]
+                    feat_result = tf.matmul(start_index, output_result)                                      # [b,1,l],[b,l,h] --> [b,1,h]
+                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1])                                      # [b,1,h] --> [b,l,h]
+                    
+                    end_result = tf.concat([output_result, feat_result], axis=-1)                           # [b,l,h],[b,l,h] --> [b,l,2h]
+                    
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
+                    
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
+                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)                # [b,l,h] --> [b,l,h]
+                    
+                    end_result = tf.layers.dense(end_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")          # [b,l,h] --> [b,l,1]
+                    
+                    end_result = tf.squeeze(end_result, axis=-1)                                                       # [b,l,1] --> [b,l]
+                    end_result = self._combine_coqa_result(end_result, unk_result, yes_result, no_result)  # [b,l],[b],[b],[b] --> [b,l+3]
+                    end_result_mask = self._combine_coqa_result(1 - p_mask,
+                        unk_result_mask, yes_result_mask, no_result_mask)                                  # [b,l],[b],[b],[b] --> [b,l+3]
+                    
+                    end_prob = self._generate_masked_data(end_result, end_result_mask)                       # [b,l+3],[b,l+3] --> [b,l+3]
+                    end_prob = tf.nn.softmax(end_prob, axis=-1)                                                                  # [b,l+3]
+                else:
+                    # During inference, compute the end logits based on beam search
+                    start_index = self._generate_onehot_label(start_top_index, seq_len)                                # [b,k] --> [b,k,l]
+                    feat_result = tf.matmul(start_index, output_result)                                      # [b,k,l],[b,l,h] --> [b,k,h]
+                    feat_result = tf.expand_dims(feat_result, axis=1)                                              # [b,k,h] --> [b,1,k,h]
+                    feat_result = tf.tile(feat_result, multiples=[1,seq_len,1,1])                                # [b,1,k,h] --> [b,l,k,h]
+                    
+                    end_result = tf.expand_dims(output_result, axis=-2)                                            # [b,l,h] --> [b,l,1,h]
+                    end_result = tf.tile(end_result, multiples=[1,1,FLAGS.start_n_top,1])                        # [b,l,1,h] --> [b,l,k,h]
+                    end_result = tf.concat([end_result, feat_result], axis=-1)                        # [b,l,k,h],[b,l,k,h] --> [b,l,k,2h]
+                    
+                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
+                    
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
+                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
+                    
+                    end_result = tf.layers.dense(end_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,k,h] --> [b,l,k,1]
+                    
+                    end_result = self._combine_coqa_result(
+                        tf.transpose(tf.squeeze(end_result, axis=-1), perm=[0,2,1]),                               # [b,l,k,1] --> [b,k,l]
+                        tf.tile(tf.expand_dims(unk_result, axis=-1), multiples=[1,FLAGS.start_n_top]),                     # [b] --> [b,k]
+                        tf.tile(tf.expand_dims(yes_result, axis=-1), multiples=[1,FLAGS.start_n_top]),                     # [b] --> [b,k]
+                        tf.tile(tf.expand_dims(no_result, axis=-1), multiples=[1,FLAGS.start_n_top])                       # [b] --> [b,k]
+                    )                                                                            # [b,k,l],[b,k],[b,k],[b,k] --> [b,k,l+3]
+                    
+                    end_result_mask = self._combine_coqa_result(1 - p_mask,
+                        unk_result_mask, yes_result_mask, no_result_mask)                                  # [b,l],[b],[b],[b] --> [b,l+3]
+                    end_result_mask = tf.expand_dims(end_result_mask, axis=1)                                      # [b,l+3] --> [b,1,l+3]
+                    end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                # [b,1,l+3] --> [b,k,l+3]
+                    
+                    end_prob = self._generate_masked_data(end_result, end_result_mask)                 # [b,k,l+3],[b,k,l+3] --> [b,k,l+3]
+                    end_prob = tf.nn.softmax(end_prob, axis=-1)                                                                # [b,k,l+3]
+                    
+                    end_top_prob, end_top_index = tf.nn.top_k(end_prob, k=FLAGS.end_n_top)                 # [b,k,l+3] --> [b,k,k],[b,k,k]
+                    predicts["end_prob"] = end_top_prob
+                    predicts["end_index"] = end_top_index
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
                 if is_training:
-                    start_label = start_positions                                                                                    # [b]
+                    start_label = self._combine_coqa_label(start_positions, is_unk, is_yes, is_no)               # [b],[b],[b],[b] --> [b]
                     start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,l] --> [b]
-                    start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
-                    end_label = end_positions                                                                                        # [b]
+                    
+                    end_label = self._combine_coqa_label(end_positions, is_unk, is_yes, is_no)                   # [b],[b],[b],[b] --> [b]
                     end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
+                    
+                    start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
                     end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
                     loss += tf.reduce_mean(start_loss + end_loss)
-                    
-                    unk_label = is_unk                                                                                               # [b]
-                    unk_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
-                    unk_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=unk_label * unk_label_mask, logits=unk_result)         # [b]
-                    loss += tf.reduce_mean(unk_loss)
-                    
-                    yes_label = is_yes                                                                                               # [b]
-                    yes_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
-                    yes_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=yes_label * yes_label_mask, logits=yes_result)         # [b]
-                    loss += tf.reduce_mean(yes_loss)
-                    
-                    no_label = is_no                                                                                                 # [b]
-                    no_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                     # [b,l] --> [b]
-                    no_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=no_label * no_label_mask, logits=no_result)             # [b]
-                    loss += tf.reduce_mean(no_loss)
         
         return loss, predicts
-    
-    def combine_coqa_label(self,
-                           pos_label,
-                           seq_len,
-                           unk_label,
-                           yes_label,
-                           no_label):
-        pos_label = self._generate_onehot_label(pos_label, seq_len)                                                        # [b] --> [b,l]
-        
-        other_label = tf.concat([
-            tf.expand_dims(unk_label, axis=-1),                                                                            # [b] --> [b,1]
-            tf.expand_dims(yes_label, axis=-1),                                                                            # [b] --> [b,1]
-            tf.expand_dims(no_label, axis=-1)                                                                              # [b] --> [b,1]
-        ], axis=-1)                                                                                              # [b], [b], [b] --> [b,3]
-        
-        pos_label_mask = 1 - tf.reduce_max(tf.cast(other_label != 0, dtype=tf.float32), axis=-1, keepdims=True)          # [b,3] --> [b,1]
-        pos_label = pos_label * pos_label_mask                                                                    # [b,l], [b,1] --> [b,l]
-        
-        coqa_label = tf.concat([pos_label, other_label], axis=-1)                                               # [b,l], [b,3] --> [b,l+3]
-        coqa_label = tf.argmax(coqa_label, axis=-1)                                                                      # [b,l+3] --> [b]
-        
-        return coqa_label
-    
-    def combine_coqa_result(self,
-                            pos_result,
-                            unk_result,
-                            yes_result,
-                            no_result):
-        other_result = tf.concat([
-            tf.expand_dims(unk_result, axis=-1),                                                                           # [b] --> [b,1]
-            tf.expand_dims(yes_result, axis=-1),                                                                           # [b] --> [b,1]
-            tf.expand_dims(no_result, axis=-1)                                                                             # [b] --> [b,1]
-        ], axis=-1)                                                                                              # [b], [b], [b] --> [b,3]
-        
-        coqa_result = tf.concat([pos_result, other_result], axis=-1)                                            # [b,l], [b,3] --> [b,l+3]
-        
-        return coqa_result
     
     def get_model_fn(self):
         """Returns `model_fn` closure for TPUEstimator."""
@@ -1336,9 +1327,6 @@ class XLNetModelBuilder(object):
                     mode=mode,
                     predictions={
                         "unique_id": unique_id,
-                        "unk_prob": predicts["unk_prob"],
-                        "yes_prob": predicts["yes_prob"],
-                        "no_prob": predicts["no_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
@@ -1357,6 +1345,7 @@ class XLNetPredictProcessor(object):
                  n_best_size,
                  start_n_top,
                  end_n_top,
+                 max_seq_length,
                  max_answer_length,
                  tokenizer,
                  predict_tag=None):
@@ -1364,6 +1353,7 @@ class XLNetPredictProcessor(object):
         self.n_best_size = n_best_size
         self.start_n_top = start_n_top
         self.end_n_top = end_n_top
+        self.max_seq_length = max_seq_length
         self.max_answer_length = max_answer_length
         self.tokenizer = tokenizer
         
@@ -1420,9 +1410,6 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_unk_prob = MAX_FLOAT
-            example_yes_prob = MIN_FLOAT
-            example_no_prob = MIN_FLOAT
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1431,10 +1418,6 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_unk_prob = min(example_unk_prob, float(example_result.unk_prob))
-                example_yes_prob = max(example_yes_prob, float(example_result.yes_prob))
-                example_no_prob = max(example_no_prob, float(example_result.no_prob))
-                
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
                     start_index = example_result.start_index[i]
@@ -1503,9 +1486,6 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_prob": example_unk_prob,
-                "yes_prob": example_yes_prob,
-                "no_prob": example_no_prob,
                 "start_prob": example_best_predict["start_prob"],
                 "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"],
@@ -1516,9 +1496,6 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_prob": example_unk_prob,
-                "yes_prob": example_yes_prob,
-                "no_prob": example_no_prob,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts
             })
@@ -1606,9 +1583,6 @@ def main(_):
         
         predict_results = [OutputResult(
             unique_id=result["unique_id"],
-            unk_prob=result["unk_prob"],
-            yes_prob=result["yes_prob"],
-            no_prob=result["no_prob"],
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
@@ -1620,6 +1594,7 @@ def main(_):
             n_best_size=FLAGS.n_best_size,
             start_n_top=FLAGS.start_n_top,
             end_n_top=FLAGS.end_n_top,
+            max_seq_length=FLAGS.max_seq_length,
             max_answer_length=FLAGS.max_answer_length,
             tokenizer=tokenizer,
             predict_tag=FLAGS.predict_tag)
