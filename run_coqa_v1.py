@@ -16,7 +16,7 @@ import tensorflow as tf
 import numpy as np
 import sentencepiece as sp
 
-from tool.eval_coqa_v1 import CoQAEvaluator
+from tool.eval_coqa import CoQAEvaluator
 from xlnet import xlnet
 import function_builder
 import prepro_utils

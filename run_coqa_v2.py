@@ -16,7 +16,7 @@ import tensorflow as tf
 import numpy as np
 import sentencepiece as sp
 
-from tool.eval_coqa_v1 import CoQAEvaluator
+from tool.eval_coqa import CoQAEvaluator
 from xlnet import xlnet
 import function_builder
 import prepro_utils
@@ -1061,7 +1061,9 @@ class XLNetModelBuilder(object):
             tf.expand_dims(no_label, axis=-1)                                                                              # [b] --> [b,1]
         ], axis=-1)                                                                                                # [b],[b],[b] --> [b,3]
         
-        pos_label_mask = 1 - tf.reduce_max(tf.cast(other_label != 0, dtype=tf.float32), axis=-1, keepdims=True)          # [b,3] --> [b,1]
+        other_label_mask = tf.cast(tf.not_equal(other_label, 0.0), dtype=tf.float32)                                     # [b,3] --> [b,3]
+        
+        pos_label_mask = 1 - tf.reduce_max(other_label_mask, axis=-1, keepdims=True)                                     # [b,3] --> [b,1]
         pos_label = pos_label * pos_label_mask                                                                     # [b,l],[b,1] --> [b,l]
         
         coqa_label = tf.concat([pos_label, other_label], axis=-1)                                                # [b,l],[b,3] --> [b,l+3]
@@ -1264,10 +1266,10 @@ class XLNetModelBuilder(object):
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
                 if is_training:
-                    start_label = self._combine_coqa_label(start_positions, is_unk, is_yes, is_no)               # [b],[b],[b],[b] --> [b]
+                    start_label = self._combine_coqa_label(start_positions, seq_len, is_unk, is_yes, is_no)      # [b],[b],[b],[b] --> [b]
                     start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,l] --> [b]
                     
-                    end_label = self._combine_coqa_label(end_positions, is_unk, is_yes, is_no)                   # [b],[b],[b],[b] --> [b]
+                    end_label = self._combine_coqa_label(end_positions, seq_len, is_unk, is_yes, is_no)          # [b],[b],[b],[b] --> [b]
                     end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     
                     start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
@@ -1426,16 +1428,19 @@ class XLNetPredictProcessor(object):
                         end_prob = example_result.end_prob[i][j]
                         end_index = example_result.end_index[i][j]
                         
-                        is_span = not (start_index == end_index and start_index >= self.max_seq_length)
+                        is_span = (start_index < self.max_seq_length and end_index < self.max_seq_length)
                         if is_span:
                             answer_length = end_index - start_index + 1
                             if end_index < start_index or answer_length > self.max_answer_length:
                                 continue
-
+                            
                             if start_index > example_feature.para_length or end_index > example_feature.para_length:
                                 continue
-
+                            
                             if start_index not in example_feature.token2doc_index:
+                                continue
+                        else:
+                            if not (start_index == end_index and start_index >= self.max_seq_length):
                                 continue
                         
                         example_all_predicts.append({
