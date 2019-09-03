@@ -1426,15 +1426,17 @@ class XLNetPredictProcessor(object):
                         end_prob = example_result.end_prob[i][j]
                         end_index = example_result.end_index[i][j]
                         
-                        answer_length = end_index - start_index + 1
-                        if end_index < start_index or answer_length > self.max_answer_length:
-                            continue
-                        
-                        if start_index > example_feature.para_length or end_index > example_feature.para_length:
-                            continue
-                        
-                        if start_index not in example_feature.token2doc_index:
-                            continue
+                        is_span = not (start_index == end_index and start_index >= self.max_seq_length)
+                        if is_span:
+                            answer_length = end_index - start_index + 1
+                            if end_index < start_index or answer_length > self.max_answer_length:
+                                continue
+
+                            if start_index > example_feature.para_length or end_index > example_feature.para_length:
+                                continue
+
+                            if start_index not in example_feature.token2doc_index:
+                                continue
                         
                         example_all_predicts.append({
                             "unique_id": example_result.unique_id,
@@ -1442,7 +1444,8 @@ class XLNetPredictProcessor(object):
                             "start_index": start_index,
                             "end_prob": end_prob,
                             "end_index": end_index,
-                            "predict_score": np.log(start_prob) + np.log(end_prob)
+                            "predict_score": np.log(start_prob) + np.log(end_prob),
+                            "is_span": is_span
                         })
             
             example_all_predicts = sorted(example_all_predicts, key=lambda x: x["predict_score"], reverse=True)
@@ -1454,9 +1457,15 @@ class XLNetPredictProcessor(object):
                     break
                 
                 example_feature = unique_id_to_feature[example_predict["unique_id"]]
-                predict_start = example_feature.token2char_raw_start_index[example_predict["start_index"]]
-                predict_end = example_feature.token2char_raw_end_index[example_predict["end_index"]]
-                predict_text = example.paragraph_text[predict_start:predict_end + 1].strip()
+                
+                if example_predict["is_span"]:
+                    predict_start = example_feature.token2char_raw_start_index[example_predict["start_index"]]
+                    predict_end = example_feature.token2char_raw_end_index[example_predict["end_index"]]
+                    predict_text = example.paragraph_text[predict_start:predict_end + 1].strip()
+                else:
+                    predict_index = example_predict["start_index"] - self.max_seq_length
+                    predict_text_list = ["unknown", "yes", "no"]
+                    predict_text = predict_text_list[predict_index]
                 
                 if predict_text in is_visited:
                     continue
