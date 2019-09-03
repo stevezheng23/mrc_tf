@@ -1482,16 +1482,12 @@ class XLNetPredictProcessor(object):
                 
                 example_top_predicts.append({
                     "predict_text": predict_text,
-                    "start_prob": float(example_predict["start_prob"]),
-                    "end_prob": float(example_predict["end_prob"]),
                     "predict_score": float(example_predict["predict_score"])
                 })
             
             if len(example_top_predicts) == 0:
                 example_top_predicts.append({
                     "predict_text": "",
-                    "start_prob": 0.0,
-                    "end_prob": 0.0,
                     "predict_score": 0.0
                 })
             
@@ -1506,8 +1502,6 @@ class XLNetPredictProcessor(object):
                 "unk_prob": example_unk_prob,
                 "yes_prob": example_yes_prob,
                 "no_prob": example_no_prob,
-                "start_prob": example_best_predict["start_prob"],
-                "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"],
                 "predict_score": example_best_predict["predict_score"]
             })

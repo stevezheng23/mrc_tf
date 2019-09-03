@@ -22,7 +22,6 @@ import function_builder
 import prepro_utils
 import model_utils
 
-MAX_FLOAT = 1e30
 MIN_FLOAT = -1e30
 
 flags = tf.flags
@@ -1479,17 +1478,15 @@ class XLNetPredictProcessor(object):
                 
                 example_top_predicts.append({
                     "predict_text": predict_text,
-                    "start_prob": float(example_predict["start_prob"]),
-                    "end_prob": float(example_predict["end_prob"]),
-                    "predict_score": float(example_predict["predict_score"])
+                    "predict_score": float(example_predict["predict_score"]),
+                    "is_span": example_predict["is_span"]
                 })
             
             if len(example_top_predicts) == 0:
                 example_top_predicts.append({
                     "predict_text": "",
-                    "start_prob": 0.0,
-                    "end_prob": 0.0,
-                    "predict_score": 0.0
+                    "predict_score": 0.0,
+                    "is_span": False
                 })
             
             example_best_predict = example_top_predicts[0]
@@ -1500,10 +1497,9 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "start_prob": example_best_predict["start_prob"],
-                "end_prob": example_best_predict["end_prob"],
                 "predict_text": example_best_predict["predict_text"],
-                "predict_score": example_best_predict["predict_score"]
+                "predict_score": example_best_predict["predict_score"],
+                "is_span": example_best_predict["is_span"]
             })
                                           
             predict_detail_list.append({
