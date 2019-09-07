@@ -51,11 +51,11 @@ flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init
 flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
-flags.DEFINE_integer("doc_stride", default=256, help="Doc stride")
-flags.DEFINE_integer("max_seq_length", default=768, help="Max sequence length")
-flags.DEFINE_integer("max_query_length", default=256, help="Max query length")
-flags.DEFINE_integer("max_answer_length", default=64, help="Max answer length")
-flags.DEFINE_integer("train_batch_size", default=32, help="Total batch size for training.")
+flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
+flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
+flags.DEFINE_integer("max_query_length", default=128, help="Max query length")
+flags.DEFINE_integer("max_answer_length", default=16, help="Max answer length")
+flags.DEFINE_integer("train_batch_size", default=48, help="Total batch size for training.")
 flags.DEFINE_integer("predict_batch_size", default=32, help="Total batch size for predict.")
 
 flags.DEFINE_integer("train_steps", default=20000, help="Number of training steps")
