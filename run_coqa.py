@@ -312,7 +312,7 @@ class CoqaPipeline(object):
                           rationale_end):
         idx = rationale_text.find(answer_text)
         answer_start = rationale_start + idx
-        answer_end = answer_start + len(answer_text)
+        answer_end = answer_start + len(answer_text) - 1
         
         return answer_start, answer_end
     
