@@ -11,6 +11,7 @@ import os.path
 import json
 import pickle
 import time
+import string
 
 import tensorflow as tf
 import numpy as np
@@ -385,6 +386,21 @@ class CoqaPipeline(object):
         
         return "span"
     
+    def _process_found_answer(self,
+                              raw_answer,
+                              found_answer):
+        raw_answer_tokens = raw_answer.split(' ')
+        found_answer_tokens = found_answer.split(' ')
+        
+        raw_answer_last_token = raw_answer_tokens[-1].lower()
+        found_answer_last_token = found_answer_tokens[-1].lower()
+        
+        if (raw_answer_last_token != found_answer_last_token and
+            raw_answer_last_token == found_answer_last_token.rstrip(string.punctuation)):
+            found_answer_tokens[-1] = found_answer_tokens[-1].rstrip(string.punctuation)
+        
+        return ' '.join(found_answer_tokens)
+    
     def _get_example(self,
                      data_list):
         examples = []
@@ -406,7 +422,7 @@ class CoqaPipeline(object):
                 question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped)
                 
                 if answer_type != "unknown" and not is_skipped:
-                    orig_answer_text = answer_text
+                    orig_answer_text = self._process_found_answer(answer["input_text"], answer_text)
                     start_position = span_start
                 else:
                     start_position = -1
