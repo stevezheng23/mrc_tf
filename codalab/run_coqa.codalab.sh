@@ -21,10 +21,10 @@ cp ../coqa-dev-v1.0.json data/coqa/dev-v1.0.json
 mkdir output
 mkdir output/coqa
 mkdir output/coqa/data
-wget -P output/coqa https://storage.googleapis.com/coqa/coqa_cased_L-12_H-768_A-12.zip
-unzip output/coqa/coqa_cased_L-12_H-768_A-12.zip -d output/coqa/
-mv output/coqa/coqa_cased_L-12_H-768_A-12 output/coqa/checkpoint
-rm output/coqa/coqa_cased_L-12_H-768_A-12.zip
+wget -P output/coqa https://storage.googleapis.com/coqa/coqa_cased_L-24_H-1024_A-16.zip
+unzip output/coqa/coqa_cased_L-24_H-1024_A-16.zip -d output/coqa/
+mv output/coqa/coqa_cased_L-24_H-1024_A-16 output/coqa/checkpoint
+rm output/coqa/coqa_cased_L-24_H-1024_A-16.zip
 
 CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
 --spiece_model_file=model/xlnet/cased_L-24_H-1024_A-16/spiece.model \
@@ -39,15 +39,15 @@ CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
 --model_dir=output/coqa/checkpoint \
 --export_dir=output/coqa/export \
 --max_seq_length=512 \
---max_query_length=64 \
+--max_query_length=128 \
 --max_answer_length=16 \
 --train_batch_size=48 \
 --predict_batch_size=16 \
 --num_hosts=1 \
 --num_core_per_host=1 \
---learning_rate=3e-5 \
+--learning_rate=2e-5 \
 --train_steps=15000 \
---warmup_steps=0 \
+--warmup_steps=1000 \
 --save_steps=3000 \
 --do_train=false \
 --do_predict=true \
@@ -57,7 +57,7 @@ CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
 python tool/convert_coqa.py \
 --input_file=output/coqa/data/predict.v1.0.summary.json \
 --output_file=output/coqa/data/predict.v1.0.span.json \
---answer_threshold=0.35
+--answer_threshold=0.15
 
 python tool/eval_coqa.py \
 --data-file=data/coqa/dev-v1.0.json \
