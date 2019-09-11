@@ -1264,43 +1264,6 @@ class XLNetModelBuilder(object):
         
         return loss, predicts
     
-    def combine_coqa_label(self,
-                           pos_label,
-                           seq_len,
-                           unk_label,
-                           yes_label,
-                           no_label):
-        pos_label = self._generate_onehot_label(pos_label, seq_len)                                                        # [b] --> [b,l]
-        
-        other_label = tf.concat([
-            tf.expand_dims(unk_label, axis=-1),                                                                            # [b] --> [b,1]
-            tf.expand_dims(yes_label, axis=-1),                                                                            # [b] --> [b,1]
-            tf.expand_dims(no_label, axis=-1)                                                                              # [b] --> [b,1]
-        ], axis=-1)                                                                                              # [b], [b], [b] --> [b,3]
-        
-        pos_label_mask = 1 - tf.reduce_max(tf.cast(other_label != 0, dtype=tf.float32), axis=-1, keepdims=True)          # [b,3] --> [b,1]
-        pos_label = pos_label * pos_label_mask                                                                    # [b,l], [b,1] --> [b,l]
-        
-        coqa_label = tf.concat([pos_label, other_label], axis=-1)                                               # [b,l], [b,3] --> [b,l+3]
-        coqa_label = tf.argmax(coqa_label, axis=-1)                                                                      # [b,l+3] --> [b]
-        
-        return coqa_label
-    
-    def combine_coqa_result(self,
-                            pos_result,
-                            unk_result,
-                            yes_result,
-                            no_result):
-        other_result = tf.concat([
-            tf.expand_dims(unk_result, axis=-1),                                                                           # [b] --> [b,1]
-            tf.expand_dims(yes_result, axis=-1),                                                                           # [b] --> [b,1]
-            tf.expand_dims(no_result, axis=-1)                                                                             # [b] --> [b,1]
-        ], axis=-1)                                                                                              # [b], [b], [b] --> [b,3]
-        
-        coqa_result = tf.concat([pos_result, other_result], axis=-1)                                            # [b,l], [b,3] --> [b,l+3]
-        
-        return coqa_result
-    
     def get_model_fn(self):
         """Returns `model_fn` closure for TPUEstimator."""
         def model_fn(features,
