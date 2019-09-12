@@ -90,12 +90,12 @@ echo "warmup steps      = ${WARMUPSTEPS}"
 echo "save steps        = ${SAVESTEPS}"
 echo "answer threshold  = ${ANSWERTHRESHOLD}"
 
-alias python=python3
+#alias python=python3
 mkdir ${OUTPUTDIR}
 
 start_time=`date +%s`
 
-CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
+CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v1.py \
 --spiece_model_file=${MODELDIR}/spiece.model \
 --model_config_path=${MODELDIR}/xlnet_config.json \
 --init_checkpoint=${MODELDIR}/xlnet_model.ckpt \
@@ -123,7 +123,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
 --do_export=false \
 --overwrite_data=false
 
-CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
+CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v1.py \
 --spiece_model_file=${MODELDIR}/spiece.model \
 --model_config_path=${MODELDIR}/xlnet_config.json \
 --init_checkpoint=${MODELDIR}/xlnet_model.ckpt \
@@ -151,7 +151,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa.py \
 --do_export=false \
 --overwrite_data=false
 
-python tool/convert_coqa.py \
+python tool/convert_coqa_v1.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
 --output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
 --answer_threshold=${ANSWERTHRESHOLD}
