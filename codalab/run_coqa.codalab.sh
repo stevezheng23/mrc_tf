@@ -64,6 +64,7 @@ python tool/eval_coqa.py \
 --pred-file=output/coqa/data/predict.v1.0.span.json \
 >> output/coqa/data/predict.v1.0.eval.json
 
+cp output/coqa/data/predict.v1.0.span.json ../coqa-dev-v1.0.span.json
 cp output/coqa/data/predict.v1.0.eval.json ../coqa-dev-v1.0.eval.json
 
 end_time=`date +%s`
