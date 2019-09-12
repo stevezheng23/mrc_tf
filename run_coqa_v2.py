@@ -336,13 +336,14 @@ class CoqaPipeline(object):
         
         paragraph_tokens = self._whitespace_tokenize(paragraph_text)
         
-        rationale_word_start, rationale_word_end = self._char_span_to_word_span(rationale_start, rationale_end, paragraph_tokens)
-        rationale_tokens = paragraph_tokens[rationale_word_start:rationale_word_end+1]
-        rationale_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in rationale_tokens]
-        match_score, answer_start, answer_end = self._search_best_span(rationale_norm_tokens, answer_norm_tokens)
-        
-        if match_score > 0.0:
-            return answer_start, answer_end
+        if not (rationale_start == -1 or rationale_end == -1):
+            rationale_word_start, rationale_word_end = self._char_span_to_word_span(rationale_start, rationale_end, paragraph_tokens)
+            rationale_tokens = paragraph_tokens[rationale_word_start:rationale_word_end+1]
+            rationale_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in rationale_tokens]
+            match_score, answer_start, answer_end = self._search_best_span(rationale_norm_tokens, answer_norm_tokens)
+            
+            if match_score > 0.0:
+                return answer_start, answer_end
         
         paragraph_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in paragraph_tokens]
         match_score, answer_start, answer_end = self._search_best_span(paragraph_norm_tokens, answer_norm_tokens)
@@ -361,7 +362,10 @@ class CoqaPipeline(object):
         
         input_text = answer["input_text"].strip().lower()
         span_start, span_end = answer["span_start"], answer["span_end"]
-        span_text = paragraph_text[span_start:span_end].lower()
+        if span_start == -1 or span_end == -1:
+            span_text = ""
+        else:
+            span_text = paragraph_text[span_start:span_end].lower()
         
         if input_text in span_text:
             span_start, span_end = self._find_answer_span(input_text, span_text, span_start, span_end)
@@ -381,7 +385,7 @@ class CoqaPipeline(object):
                          answer):
         norm_text = CoQAEvaluator.normalize_answer(answer["input_text"])
         
-        if norm_text == "unknown" or "bad_turn" in answer or (answer["span_start"] == -1 and answer["span_end"] == -1):
+        if norm_text == "unknown" or "bad_turn" in answer:
             return "unknown", None
         
         if norm_text in ["yes", "true"]:
