@@ -26,7 +26,7 @@ unzip output/coqa/coqa_cased_L-24_H-1024_A-16.zip -d output/coqa/
 mv output/coqa/coqa_cased_L-24_H-1024_A-16 output/coqa/checkpoint
 rm output/coqa/coqa_cased_L-24_H-1024_A-16.zip
 
-CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
+CUDA_VISIBLE_DEVICES=0 python run_coqa_v2.py \
 --spiece_model_file=model/xlnet/cased_L-24_H-1024_A-16/spiece.model \
 --model_config_path=model/xlnet/cased_L-24_H-1024_A-16/xlnet_config.json \
 --init_checkpoint=model/xlnet/cased_L-24_H-1024_A-16/xlnet_model.ckpt \
@@ -46,18 +46,18 @@ CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
 --num_hosts=1 \
 --num_core_per_host=1 \
 --learning_rate=2e-5 \
---train_steps=15000 \
+--train_steps=10000 \
 --warmup_steps=1000 \
---save_steps=3000 \
+--save_steps=1000 \
 --do_train=false \
 --do_predict=true \
 --do_export=false \
 --overwrite_data=false
 
-python tool/convert_coqa.py \
+python tool/convert_coqa_v2.py \
 --input_file=output/coqa/data/predict.v1.0.summary.json \
 --output_file=output/coqa/data/predict.v1.0.span.json \
---answer_threshold=0.15
+--answer_threshold=0.1
 
 python tool/eval_coqa.py \
 --data-file=data/coqa/dev-v1.0.json \
