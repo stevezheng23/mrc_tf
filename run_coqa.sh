@@ -33,10 +33,6 @@ for i in "$@"
       OUTPUTDIR="${i#*=}"
       shift
       ;;
-      --numturn=*)
-      NUMTURN="${i#*=}"
-      shift
-      ;;
       --seqlen=*)
       SEQLEN="${i#*=}"
       shift
@@ -84,7 +80,6 @@ echo "predict tag       = ${PREDICTTAG}"
 echo "model dir         = ${MODELDIR}"
 echo "data dir          = ${DATADIR}"
 echo "output dir        = ${OUTPUTDIR}"
-echo "num turn          = ${NUMTURN}"
 echo "seq len           = ${SEQLEN}"
 echo "query len         = ${QUERYLEN}"
 echo "answer len        = ${ANSWERLEN}"
@@ -112,7 +107,6 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
 --output_dir=${OUTPUTDIR}/data \
 --model_dir=${OUTPUTDIR}/checkpoint \
 --export_dir=${OUTPUTDIR}/export \
---num_turn=${NUMTURN} \
 --max_seq_length=${SEQLEN} \
 --max_query_length=${QUERYLEN} \
 --max_answer_length=${ANSWERLEN} \
