@@ -867,11 +867,12 @@ class XLNetExampleProcessor(object):
             is_unk = (example.answer_type == "unknown" or example.is_skipped)
             is_yes = (example.answer_type == "yes")
             is_no = (example.answer_type == "no")
-            if example.answer_type != "number":
-                number = 0
-            else:
+            
+            if example.answer_type == "number":
                 number_list = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
                 number = number_list.index(example.answer_subtype) + 1
+            else:
+                number = 0
             
             if is_unk or is_yes or is_no or number > 0:
                 start_position = cls_index

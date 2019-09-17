@@ -401,9 +401,6 @@ class CoqaPipeline(object):
         if norm_answer == "unknown" or "bad_turn" in answer:
             return "unknown", None
         
-        raw_answer_tokens = answer["input_text"].split(" ")
-        norm_answer_tokens = norm_answer.split(" ")
-        
         if norm_answer == "yes":
             return "yes", None
         
