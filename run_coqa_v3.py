@@ -149,7 +149,8 @@ class InputFeatures(object):
                  is_unk=None,
                  is_yes=None,
                  is_no=None,
-                 number=None):
+                 number=None,
+                 option=None):
         self.unique_id = unique_id
         self.qas_id = qas_id
         self.doc_idx = doc_idx
@@ -168,6 +169,7 @@ class InputFeatures(object):
         self.is_yes = is_yes
         self.is_no = is_no
         self.number = number
+        self.option = option
 
 class OutputResult(object):
     """A single CoQA result."""
@@ -177,6 +179,7 @@ class OutputResult(object):
                  yes_prob,
                  no_prob,
                  num_probs,
+                 opt_probs,
                  start_prob,
                  start_index,
                  end_prob,
@@ -186,6 +189,7 @@ class OutputResult(object):
         self.yes_prob = yes_prob
         self.no_prob = no_prob
         self.num_probs = num_probs
+        self.opt_probs = opt_probs
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
@@ -390,20 +394,36 @@ class CoqaPipeline(object):
         return answer_text, span_start, span_end, is_skipped
     
     def _get_answer_type(self,
+                         question,
                          answer):
-        norm_text = CoQAEvaluator.normalize_answer(answer["input_text"])
+        norm_answer = CoQAEvaluator.normalize_answer(answer["input_text"])
         
-        if norm_text == "unknown" or "bad_turn" in answer:
+        if norm_answer == "unknown" or "bad_turn" in answer:
             return "unknown", None
         
-        if norm_text in ["yes", "true"]:
+        raw_answer_tokens = answer["input_text"].split(" ")
+        norm_answer_tokens = norm_answer.split(" ")
+        
+        if norm_answer == "yes":
             return "yes", None
         
-        if norm_text in ["no", "none", "false"]:
+        if norm_answer == "no":
             return "no", None
         
-        if norm_text in ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]:
-            return "number", norm_text
+        if norm_answer in ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]:
+            return "number", norm_answer
+        
+        norm_question_tokens = CoQAEvaluator.normalize_answer(question["input_text"]).split(" ")
+        if "or" in norm_question_tokens:
+            index = norm_question_tokens.index("or")
+            if index-1 >= 0 and index+1 < len(norm_question_tokens):
+                if norm_answer == norm_question_tokens[index-1]:
+                    norm_answer = "option_a"
+                elif norm_answer == norm_question_tokens[index+1]:
+                    norm_answer = "option_b"
+        
+        if norm_answer in ["option_a", "option_b"]:
+            return "option", norm_answer
         
         return "span", None
     
@@ -437,7 +457,7 @@ class CoqaPipeline(object):
             for i, (question, answer) in enumerate(qas):
                 qas_id = "{0}_{1}".format(data_id, i+1)
                 
-                answer_type, answer_subtype = self._get_answer_type(answer)
+                answer_type, answer_subtype = self._get_answer_type(question, answer)
                 answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
                 question_text = self._get_question_text(question_history, question)
                 question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
@@ -766,7 +786,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if example.answer_type in ["unknown", "yes", "no", "number"] or example.is_skipped:
+        if example.answer_type in ["unknown", "yes", "no", "number", "option"] or example.is_skipped:
             tokenized_start_token_pos = tokenized_end_token_pos = -1
         else:
             raw_start_char_pos = example.start_position
@@ -867,13 +887,20 @@ class XLNetExampleProcessor(object):
             is_unk = (example.answer_type == "unknown" or example.is_skipped)
             is_yes = (example.answer_type == "yes")
             is_no = (example.answer_type == "no")
-            if example.answer_type != "number":
-                number = 0
-            else:
+            
+            if example.answer_type == "number":
                 number_list = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
                 number = number_list.index(example.answer_subtype) + 1
+            else:
+                number = 0
             
-            if is_unk or is_yes or is_no or number > 0:
+            if example.answer_type == "option":
+                option_list = ["option_a", "option_b"]
+                option = option_list.index(example.answer_subtype) + 1
+            else:
+                option = 0
+            
+            if is_unk or is_yes or is_no or number > 0 or option > 0:
                 start_position = cls_index
                 end_position = cls_index
             else:
@@ -902,8 +929,8 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if is_unk or is_yes or is_no or number > 0:
-                    tf.logging.info("unknown, yes/no or number example")
+                if is_unk or is_yes or is_no or number > 0 or option > 0:
+                    tf.logging.info("unknown, yes/no, number or option example")
                 else:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
@@ -929,7 +956,8 @@ class XLNetExampleProcessor(object):
                 is_unk=is_unk,
                 is_yes=is_yes,
                 is_no=is_no,
-                number=number)
+                number=number,
+                option=option)
             
             feature_list.append(feature)
             self.unique_id += 1
@@ -977,6 +1005,7 @@ class XLNetExampleProcessor(object):
                 features["is_yes"] = create_float_feature([1 if feature.is_yes else 0])
                 features["is_no"] = create_float_feature([1 if feature.is_no else 0])
                 features["number"] = create_float_feature([feature.number])
+                features["option"] = create_float_feature([feature.option])
                 
                 tf_example = tf.train.Example(features=tf.train.Features(feature=features))
                 writer.write(tf_example.SerializeToString())
@@ -1024,6 +1053,7 @@ class XLNetInputBuilder(object):
             name_to_features["is_yes"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["is_no"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["number"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["option"] = tf.FixedLenFeature([], tf.float32)
         
         def _decode_record(record,
                            name_to_features):
@@ -1132,7 +1162,8 @@ class XLNetModelBuilder(object):
                       is_unk=None,
                       is_yes=None,
                       is_no=None,
-                      number=None):
+                      number=None,
+                      option=None):
         """Creates XLNet-CoQA model"""
         model = xlnet.XLNetModel(
             xlnet_config=self.model_config,
@@ -1277,6 +1308,16 @@ class XLNetModelBuilder(object):
                     num_result = self._generate_masked_data(num_result, num_result_mask)                        # [b,11], [b,1] --> [b,11]
                     num_probs = tf.nn.softmax(num_result, axis=-1)                                                                # [b,11]
                     predicts["num_probs"] = num_probs
+                
+                with tf.variable_scope("opt", reuse=tf.AUTO_REUSE):
+                    opt_result = tf.layers.dense(answer_result, units=3, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="opt_project")              # [b,h] --> [b,3]
+                    opt_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
+                    
+                    opt_result = self._generate_masked_data(opt_result, opt_result_mask)                         # [b,3], [b,1] --> [b,3]
+                    opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                # [b,3]
+                    predicts["opt_probs"] = opt_probs
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
@@ -1308,6 +1349,11 @@ class XLNetModelBuilder(object):
                     num_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     num_loss = self._compute_loss(num_label, num_label_mask, num_result, num_result_mask)                            # [b]
                     loss += tf.reduce_mean(num_loss)
+                    
+                    opt_label = option                                                                                               # [b]
+                    opt_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
+                    opt_loss = self._compute_loss(opt_label, opt_label_mask, opt_result, opt_result_mask)                            # [b]
+                    loss += tf.reduce_mean(opt_loss)
         
         return loss, predicts
     
@@ -1338,6 +1384,7 @@ class XLNetModelBuilder(object):
                 is_yes = features["is_yes"]
                 is_no = features["is_no"]
                 number = features["number"]
+                option = features["option"]
             else:
                 start_position = None
                 end_position = None
@@ -1345,9 +1392,10 @@ class XLNetModelBuilder(object):
                 is_yes = None
                 is_no = None
                 number = None
-
-            loss, predicts = self._create_model(is_training, input_ids, input_mask,
-                p_mask, segment_ids, cls_index, start_position, end_position, is_unk, is_yes, is_no, number)
+                option = None
+            
+            loss, predicts = self._create_model(is_training, input_ids, input_mask, p_mask, segment_ids, cls_index,
+                start_position, end_position, is_unk, is_yes, is_no, number, option)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
@@ -1368,6 +1416,7 @@ class XLNetModelBuilder(object):
                         "yes_prob": predicts["yes_prob"],
                         "no_prob": predicts["no_prob"],
                         "num_probs": predicts["num_probs"],
+                        "opt_probs": predicts["opt_probs"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
@@ -1455,6 +1504,9 @@ class XLNetPredictProcessor(object):
             example_num_id = 0
             example_num_score = MIN_FLOAT
             example_num_probs = None
+            example_opt_id = 0
+            example_opt_score = MIN_FLOAT
+            example_opt_probs = None
             
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
@@ -1475,6 +1527,14 @@ class XLNetPredictProcessor(object):
                     example_num_id = num_id
                     example_num_score = num_score
                     example_num_probs = num_probs
+                
+                opt_probs = [float(opt_prob) for opt_prob in example_result.opt_probs]
+                opt_id = int(np.argmax(opt_probs))
+                opt_score = opt_probs[opt_id]
+                if opt_id != 0 and example_opt_score < opt_score:
+                    example_opt_id = opt_id
+                    example_opt_score = opt_score
+                    example_opt_probs = opt_probs
                 
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
@@ -1546,6 +1606,9 @@ class XLNetPredictProcessor(object):
                 "num_id": example_num_id,
                 "num_score": example_num_score,
                 "num_probs": example_num_probs,
+                "opt_id": example_opt_id,
+                "opt_score": example_opt_score,
+                "opt_probs": example_opt_probs,
                 "predict_text": example_best_predict["predict_text"],
                 "predict_score": example_best_predict["predict_score"]
             })
@@ -1560,6 +1623,9 @@ class XLNetPredictProcessor(object):
                 "num_id": example_num_id,
                 "num_score": example_num_score,
                 "num_probs": example_num_probs,
+                "opt_id": example_opt_id,
+                "opt_score": example_opt_score,
+                "opt_probs": example_opt_probs,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts
             })
@@ -1652,6 +1718,7 @@ def main(_):
             yes_prob=result["yes_prob"],
             no_prob=result["no_prob"],
             num_probs=result["num_probs"].tolist(),
+            opt_probs=result["opt_probs"].tolist(),
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
