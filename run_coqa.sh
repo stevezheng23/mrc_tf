@@ -141,6 +141,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
 --output_dir=${OUTPUTDIR}/data \
 --model_dir=${OUTPUTDIR}/checkpoint \
 --export_dir=${OUTPUTDIR}/export \
+--num_turn=${NUMTURN} \
 --max_seq_length=${SEQLEN} \
 --max_query_length=${QUERYLEN} \
 --max_answer_length=${ANSWERLEN} \
