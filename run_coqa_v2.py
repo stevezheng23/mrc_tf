@@ -310,7 +310,10 @@ class CoqaPipeline(object):
             question_tokens.extend(['<s>'] + question["input_text"].split(' '))
             question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
         
-        history.append(" ".join(question_tokens))
+        question_text = " ".join(question_tokens)
+        if question_text:
+            history.append(question_text)
+        
         if len(history) > num_turn:
             history = history[-num_turn:]
         

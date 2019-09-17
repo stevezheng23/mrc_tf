@@ -188,9 +188,11 @@ class CoqaPipeline(object):
     """Pipeline for CoQA dataset."""
     def __init__(self,
                  data_dir,
-                 task_name):
+                 task_name,
+                 num_turn):
         self.data_dir = data_dir
         self.task_name = task_name
+        self.num_turn = num_turn
     
     def get_train_examples(self):
         """Gets a collection of `InputExample`s for the train set."""
@@ -286,24 +288,29 @@ class CoqaPipeline(object):
     def _get_question_text(self,
                            history,
                            question):
-        question_tokens = [history] if history else []
-        question_tokens.extend(['<s>'] + question["input_text"].split(' '))
-        
-        return " ".join(question_tokens)
+        question_tokens = ['<s>'] + question["input_text"].split(' ')
+        return " ".join(history + [" ".join(question_tokens)])
     
     def _get_question_history(self,
                               history,
                               question,
                               answer,
                               answer_type,
-                              is_skipped):
-        question_tokens = [history] if history else []
-        
+                              is_skipped,
+                              num_turn):
+        question_tokens = []
         if answer_type != "unknown" or is_skipped:
             question_tokens.extend(['<s>'] + question["input_text"].split(' '))
             question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
         
-        return " ".join(question_tokens)
+        question_text = " ".join(question_tokens)
+        if question_text:
+            history.append(question_text)
+        
+        if len(history) > num_turn:
+            history = history[-num_turn:]
+        
+        return history
     
     def _find_answer_span(self,
                           answer_text,
@@ -415,7 +422,7 @@ class CoqaPipeline(object):
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
             
-            question_history = ""
+            question_history = []
             qas = list(zip(questions, answers))
             for i, (question, answer) in enumerate(qas):
                 qas_id = "{0}_{1}".format(data_id, i+1)
@@ -423,11 +430,11 @@ class CoqaPipeline(object):
                 answer_type = self._get_answer_type(answer)
                 answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
                 question_text = self._get_question_text(question_history, question)
-                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped)
+                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
                 
                 if answer_type != "unknown" and not is_skipped:
-                    orig_answer_text = self._process_found_answer(answer["input_text"], answer_text)
                     start_position = span_start
+                    orig_answer_text = self._process_found_answer(answer["input_text"], answer_text)
                 else:
                     start_position = -1
                     orig_answer_text = ""
@@ -506,7 +513,7 @@ class XLNetExampleProcessor(object):
         self.segment_vocab_map = {}
         for (i, segment_vocab) in enumerate(self.segment_vocab_list):
             self.segment_vocab_map[segment_vocab] = i
-                
+        
         self.max_seq_length = max_seq_length
         self.max_query_length = max_query_length
         self.doc_stride = doc_stride
@@ -1514,7 +1521,8 @@ def main(_):
     task_name = FLAGS.task_name.lower()
     data_pipeline = CoqaPipeline(
         data_dir=FLAGS.data_dir,
-        task_name=task_name)
+        task_name=task_name,
+        num_turn=FLAGS.num_turn)
     
     model_config = xlnet.XLNetConfig(json_path=FLAGS.model_config_path)
     
