@@ -52,6 +52,7 @@ flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init
 flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
+flags.DEFINE_integer("num_turn", default=2, help="Number of turns.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
 flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
 flags.DEFINE_integer("max_query_length", default=128, help="Max query length")
@@ -194,9 +195,11 @@ class CoqaPipeline(object):
     """Pipeline for CoQA dataset."""
     def __init__(self,
                  data_dir,
-                 task_name):
+                 task_name,
+                 num_turn):
         self.data_dir = data_dir
         self.task_name = task_name
+        self.num_turn = num_turn
     
     def get_train_examples(self):
         """Gets a collection of `InputExample`s for the train set."""
@@ -292,24 +295,26 @@ class CoqaPipeline(object):
     def _get_question_text(self,
                            history,
                            question):
-        question_tokens = [history] if history else []
-        question_tokens.extend(['<s>'] + question["input_text"].split(' '))
-        
-        return " ".join(question_tokens)
+        question_tokens = ['<s>'] + question["input_text"].split(' ')
+        return " ".join(history + [" ".join(question_tokens)])
     
     def _get_question_history(self,
                               history,
                               question,
                               answer,
                               answer_type,
-                              is_skipped):
-        question_tokens = [history] if history else []
-        
+                              is_skipped,
+                              num_turn):
+        question_tokens = []
         if answer_type != "unknown" or is_skipped:
             question_tokens.extend(['<s>'] + question["input_text"].split(' '))
             question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
         
-        return " ".join(question_tokens)
+        history.append(" ".join(question_tokens))
+        if len(history) > num_turn:
+            history = history[-num_turn:]
+        
+        return history
     
     def _find_answer_span(self,
                           answer_text,
@@ -424,7 +429,7 @@ class CoqaPipeline(object):
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
             
-            question_history = ""
+            question_history = []
             qas = list(zip(questions, answers))
             for i, (question, answer) in enumerate(qas):
                 qas_id = "{0}_{1}".format(data_id, i+1)
@@ -432,7 +437,7 @@ class CoqaPipeline(object):
                 answer_type, answer_subtype = self._get_answer_type(answer)
                 answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
                 question_text = self._get_question_text(question_history, question)
-                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped)
+                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
                 
                 if answer_type != "unknown" and not is_skipped:
                     start_position = span_start
@@ -1570,7 +1575,8 @@ def main(_):
     task_name = FLAGS.task_name.lower()
     data_pipeline = CoqaPipeline(
         data_dir=FLAGS.data_dir,
-        task_name=task_name)
+        task_name=task_name,
+        num_turn=FLAGS.num_turn)
     
     model_config = xlnet.XLNetConfig(json_path=FLAGS.model_config_path)
     
