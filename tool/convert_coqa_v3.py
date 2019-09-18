@@ -29,7 +29,7 @@ def convert_coqa(input_file,
         if score_list[score_idx] >= answer_threshold:
             answer = answer_list[score_idx]
             if answer == "number":
-                answer_list = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+                answer_list = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
                 answer = answer_list[data["num_id"]-1]
             elif answer == "option":
                 answer = data["predict_text"]
@@ -38,17 +38,14 @@ def convert_coqa(input_file,
                     index = norm_question_tokens.index("or")
                     if index-1 >= 0 and index+1 < len(norm_question_tokens):
                         answer_list = [norm_question_tokens[index-1], norm_question_tokens[index+1]]
-                        answer = answer_list[data["num_id"]-1]
+                        answer = answer_list[data["opt_id"]-1]
         else:
             answer = data["predict_text"]
-        
-        score = score_list[score_idx]
         
         output_data.append({
             "id": id,
             "turn_id": turn_id,
-            "answer": answer,
-            "score": score
+            "answer": answer
         })
     
     with open(output_file, "w") as file:
