@@ -100,7 +100,7 @@ mkdir ${OUTPUTDIR}
 
 start_time=`date +%s`
 
-CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
+CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v3.py \
 --spiece_model_file=${MODELDIR}/spiece.model \
 --model_config_path=${MODELDIR}/xlnet_config.json \
 --init_checkpoint=${MODELDIR}/xlnet_model.ckpt \
@@ -129,7 +129,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
 --do_export=false \
 --overwrite_data=false
 
-CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
+CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v3.py \
 --spiece_model_file=${MODELDIR}/spiece.model \
 --model_config_path=${MODELDIR}/xlnet_config.json \
 --init_checkpoint=${MODELDIR}/xlnet_model.ckpt \
@@ -158,7 +158,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_coqa_v2.py \
 --do_export=false \
 --overwrite_data=false
 
-python tool/convert_coqa_v2.py \
+python tool/convert_coqa_v3.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
 --output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
 --answer_threshold=${ANSWERTHRESHOLD}
