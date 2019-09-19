@@ -1355,7 +1355,7 @@ class XLNetModelBuilder(object):
                     unk_label = is_unk                                                                                               # [b]
                     unk_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     unk_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=unk_label * unk_label_mask, logits=unk_result)         # [b]
-                    loss += tf.reduce_mean(unk_loss) * 0.1
+                    loss += tf.reduce_mean(unk_loss)
                     
                     yes_label = is_yes                                                                                               # [b]
                     yes_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
@@ -1370,12 +1370,12 @@ class XLNetModelBuilder(object):
                     num_label = number                                                                                               # [b]
                     num_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     num_loss = self._compute_loss(num_label, num_label_mask, num_result, num_result_mask)                            # [b]
-                    loss += tf.reduce_mean(num_loss) * 0.5
+                    loss += tf.reduce_mean(num_loss)
                     
                     opt_label = option                                                                                               # [b]
                     opt_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     opt_loss = self._compute_loss(opt_label, opt_label_mask, opt_result, opt_result_mask)                            # [b]
-                    loss += tf.reduce_mean(opt_loss) * 0.1
+                    loss += tf.reduce_mean(opt_loss)
         
         return loss, predicts
     
