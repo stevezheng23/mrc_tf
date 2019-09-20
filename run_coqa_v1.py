@@ -308,7 +308,7 @@ class CoqaPipeline(object):
         if question_text:
             history.append(question_text)
         
-        if len(history) > num_turn:
+        if num_turn >= 0 and len(history) > num_turn:
             history = history[-num_turn:]
         
         return history
@@ -383,17 +383,33 @@ class CoqaPipeline(object):
         
         return answer_text, span_start, span_end, is_skipped
     
-    def _get_answer_type(self,
-                         answer):
-        norm_text = CoQAEvaluator.normalize_answer(answer["input_text"])
+    def _normalize_answer(self,
+                          answer):
+        norm_answer = CoQAEvaluator.normalize_answer(answer)
+        norm_answer_tokens = norm_answer.split(" ")
         
-        if norm_text == "unknown" or "bad_turn" in answer:
-            return "unknown"
+        if not norm_answer_tokens:
+            return norm_answer
         
-        if norm_text in ["yes", "true"]:
+        if norm_answer_tokens[0] == "yes" or norm_answer in ["yes", "yese", "ye", "es"]:
             return "yes"
         
-        if norm_text in ["no", "none", "false"]:
+        if norm_answer_tokens[0] == "no" or norm_answer in ["no", "not"]:
+            return "no"
+        
+        return norm_answer
+    
+    def _get_answer_type(self,
+                         answer):
+        norm_answer = self._normalize_answer(answer["input_text"])
+        
+        if norm_answer == "unknown" or "bad_turn" in answer:
+            return "unknown"
+        
+        if norm_answer == "yes":
+            return "yes"
+        
+        if norm_answer == "no":
             return "no"
         
         return "span"
@@ -756,9 +772,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if example.answer_type in ["unknown", "yes", "no"] or example.is_skipped:
-            tokenized_start_token_pos = tokenized_end_token_pos = -1
-        else:
+        if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
             raw_start_char_pos = example.start_position
             raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
             tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
@@ -766,6 +780,8 @@ class XLNetExampleProcessor(object):
             tokenized_start_token_pos = char2token_index[tokenized_start_char_pos]
             tokenized_end_token_pos = char2token_index[tokenized_end_char_pos]
             assert tokenized_start_token_pos <= tokenized_end_token_pos
+        else:
+            tokenized_start_token_pos = tokenized_end_token_pos = -1
         
         # The -3 accounts for [CLS], [SEP] and [SEP]
         max_para_length = self.max_seq_length - len(query_tokens) - 3
@@ -857,19 +873,19 @@ class XLNetExampleProcessor(object):
             is_unk = (example.answer_type == "unknown" or example.is_skipped)
             is_yes = (example.answer_type == "yes")
             is_no = (example.answer_type == "no")
-            if is_unk or is_yes or is_no:
-                start_position = cls_index
-                end_position = cls_index
-            else:
+            if not is_unk and not is_yes and not is_no and example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
-                if tokenized_start_token_pos < doc_start or tokenized_end_token_pos > doc_end:
+                if tokenized_start_token_pos >= doc_start and tokenized_end_token_pos <= doc_end:
+                    start_position = tokenized_start_token_pos - doc_start
+                    end_position = tokenized_end_token_pos - doc_start
+                else:
                     start_position = cls_index
                     end_position = cls_index
                     is_unk = True
-                else:
-                    start_position = tokenized_start_token_pos - doc_start
-                    end_position = tokenized_end_token_pos - doc_start
+            else:
+                start_position = cls_index
+                end_position = cls_index
             
             if logging:
                 tf.logging.info("*** Example ***")
@@ -886,14 +902,15 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if is_unk or is_yes or is_no:
-                    tf.logging.info("unknown or yes/no example")
-                else:
+                if not is_unk and not is_yes and not is_no and example.orig_answer_text:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
                     answer_tokens = input_tokens[start_position:end_position+1]
                     answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                     tf.logging.info("answer_text: %s" % answer_text)
+                    tf.logging.info("answer_type: %s" % example.answer_type)
+                else:
+                    tf.logging.info("answer_type: %s" % example.answer_type)
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
@@ -1126,7 +1143,7 @@ class XLNetModelBuilder(object):
         output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                      # [l,b,h] --> [b,l,h]
         
         predicts = {}
-        with tf.variable_scope("mrc", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("coqa", reuse=tf.AUTO_REUSE):
             with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
                 start_result = output_result                                                                                     # [b,l,h]
                 start_result_mask = 1 - p_mask                                                                                     # [b,l]
@@ -1411,9 +1428,10 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_unk_prob = MAX_FLOAT
-            example_yes_prob = MIN_FLOAT
-            example_no_prob = MIN_FLOAT
+            example_unk_score = MAX_FLOAT
+            example_yes_score = MIN_FLOAT
+            example_no_score = MIN_FLOAT
+            
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
             for example_feature in example_features:
@@ -1422,9 +1440,9 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_unk_prob = min(example_unk_prob, float(example_result.unk_prob))
-                example_yes_prob = max(example_yes_prob, float(example_result.yes_prob))
-                example_no_prob = max(example_no_prob, float(example_result.no_prob))
+                example_unk_score = min(example_unk_score, float(example_result.unk_prob))
+                example_yes_score = max(example_yes_score, float(example_result.yes_prob))
+                example_no_score = max(example_no_score, float(example_result.no_prob))
                 
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
@@ -1490,9 +1508,9 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_prob": example_unk_prob,
-                "yes_prob": example_yes_prob,
-                "no_prob": example_no_prob,
+                "unk_score": example_unk_score,
+                "yes_score": example_yes_score,
+                "no_score": example_no_score,
                 "predict_text": example_best_predict["predict_text"],
                 "predict_score": example_best_predict["predict_score"]
             })
@@ -1501,9 +1519,9 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_prob": example_unk_prob,
-                "yes_prob": example_yes_prob,
-                "no_prob": example_no_prob,
+                "unk_score": example_unk_score,
+                "yes_score": example_yes_score,
+                "no_score": example_no_score,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts
             })
