@@ -1180,6 +1180,14 @@ class XLNetInputBuilder(object):
             name_to_features["is_no"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["number"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["option"] = tf.FixedLenFeature([], tf.float32)
+            
+            name_to_features["start_target"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["end_target"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["unk_target"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["yes_target"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["no_target"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["number_target"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["option_target"] = tf.FixedLenFeature([], tf.float32)
         else:
             name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
         
@@ -1280,6 +1288,18 @@ class XLNetModelBuilder(object):
         
         return loss
     
+    def _compute_kd_loss(self,
+                         label,
+                         label_mask,
+                         predict,
+                         predict_mask):
+        """Compute optimization kd loss"""
+        masked_predict = self._generate_masked_data(predict, predict_mask)
+        masked_label = self._generate_masked_data(label, label_mask)
+        loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=masked_label, logits=masked_predict)
+        
+        return loss
+    
     def _create_model(self,
                       is_training,
                       input_ids,
@@ -1293,7 +1313,14 @@ class XLNetModelBuilder(object):
                       is_yes=None,
                       is_no=None,
                       number=None,
-                      option=None):
+                      option=None,
+                      start_target=None,
+                      end_target=None,
+                      unk_target=None,
+                      yes_target=None,
+                      no_target=None,
+                      number_target=None,
+                      option_target=None):
         """Creates XLNet-CoQA model"""
         model = xlnet.XLNetModel(
             xlnet_config=self.model_config,
@@ -1541,6 +1568,42 @@ class XLNetModelBuilder(object):
                     opt_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     opt_loss = self._compute_loss(opt_label, opt_label_mask, opt_result, opt_result_mask)                            # [b]
                     loss += tf.reduce_mean(opt_loss)
+                    
+                    # During kd training, compute kd loss based on soft target
+                    start_kd_label = start_target                                                                                  # [b,l]
+                    start_kd_label_mask = 1 - p_mask                                                                               # [b,l]
+                    start_kd_loss = self._compute_kd_loss(start_kd_label, start_kd_label_mask, start_kd_result, start_kd_result_mask)
+                    end_kd_label = end_target                                                                                      # [b,l]
+                    end_kd_label_mask = 1 - p_mask                                                                                 # [b,l]
+                    end_kd_loss = self._compute_kd_loss(end_kd_label, end_kd_label_mask, end_kd_result, end_kd_result_mask)
+                    kd_loss += tf.reduce_mean(start_kd_loss + end_kd_loss)
+                    
+                    unk_kd_label = unk_target                                                                                        # [b]
+                    unk_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
+                    unk_kd_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=unk_kd_label * unk_kd_label_mask, logits=unk_kd_result)
+                    kd_loss += tf.reduce_mean(unk_kd_loss)
+                    
+                    yes_kd_label = yes_target                                                                                        # [b]
+                    yes_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
+                    yes_kd_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=yes_kd_label * yes_kd_label_mask, logits=yes_kd_result)
+                    kd_loss += tf.reduce_mean(yes_kd_loss)
+                    
+                    no_kd_label = no_target                                                                                          # [b]
+                    no_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,l] --> [b]
+                    no_kd_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=no_kd_label * no_kd_label_mask, logits=no_kd_result)
+                    kd_loss += tf.reduce_mean(no_kd_loss)
+                    
+                    num_kd_label = number_target                                                                                  # [b,12]
+                    num_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                # [b,l] --> [b,1]
+                    num_kd_loss = self._compute_kd_loss(num_kd_label, num_kd_label_mask, num_kd_result, num_kd_result_mask)
+                    kd_loss += tf.reduce_mean(num_kd_loss)
+                    
+                    opt_kd_label = option_target                                                                                   # [b,3]
+                    opt_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                # [b,l] --> [b,1]
+                    opt_kd_loss = self._compute_kd_loss(opt_kd_label, opt_kd_label_mask, opt_kd_result, opt_kd_result_mask)
+                    kd_loss += tf.reduce_mean(opt_kd_loss)
+                    
+                    loss += kd_loss * (self.kd_temperature**2)
         
         return loss, predicts
     
@@ -1572,6 +1635,14 @@ class XLNetModelBuilder(object):
                 is_no = features["is_no"]
                 number = features["number"]
                 option = features["option"]
+                
+                start_target = features["start_target"]
+                end_target = features["end_target"]
+                unk_target = features["unk_target"]
+                yes_target = features["yes_target"]
+                no_target = features["no_target"]
+                number_target = features["number_target"]
+                option_target = features["option_target"]
             else:
                 start_position = features["start_position"]
                 end_position = None
@@ -1580,9 +1651,18 @@ class XLNetModelBuilder(object):
                 is_no = None
                 number = None
                 option = None
+                
+                start_target = None
+                end_target = None
+                unk_target = None
+                yes_target = None
+                no_target = None
+                number_target = None
+                option_target = None
             
             loss, predicts = self._create_model(is_training, input_ids, input_mask, p_mask, segment_ids, cls_index,
-                start_position, end_position, is_unk, is_yes, is_no, number, option)
+                start_position, end_position, is_unk, is_yes, is_no, number, option, start_target, end_target,
+                unk_target, yes_target, no_target, number_target, option_target)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
