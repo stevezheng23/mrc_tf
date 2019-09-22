@@ -17,7 +17,7 @@ import tensorflow as tf
 import numpy as np
 import sentencepiece as sp
 
-from tool.eval_coqa import CoQAEvaluator
+from tool.eval_quac import normalize_answer
 from xlnet import xlnet
 import function_builder
 import prepro_utils
@@ -96,7 +96,7 @@ flags.DEFINE_string("master", None, "TensorFlow master URL")
 flags.DEFINE_integer("iterations", 1000, "number of iterations per TPU training loop.")
 
 class InputExample(object):
-    """A single CoQA example."""
+    """A single QuAC example."""
     def __init__(self,
                  qas_id,
                  question_text,
@@ -128,7 +128,7 @@ class InputExample(object):
         return "[{0}]\n".format(s)
 
 class InputFeatures(object):
-    """A single CoQA feature."""
+    """A single QuAC feature."""
     def __init__(self,
                  unique_id,
                  qas_id,
@@ -166,7 +166,7 @@ class InputFeatures(object):
         self.is_no = is_no
 
 class OutputResult(object):
-    """A single CoQA result."""
+    """A single QuAC result."""
     def __init__(self,
                  unique_id,
                  unk_prob,
@@ -185,8 +185,8 @@ class OutputResult(object):
         self.end_prob = end_prob
         self.end_index = end_index
 
-class CoqaPipeline(object):
-    """Pipeline for CoQA dataset."""
+class QuacPipeline(object):
+    """Pipeline for QuAC dataset."""
     def __init__(self,
                  data_dir,
                  task_name,
@@ -330,7 +330,7 @@ class CoqaPipeline(object):
                            rationale_end,
                            paragraph_text):
         answer_tokens = self._whitespace_tokenize(answer_text)
-        answer_norm_tokens = [CoQAEvaluator.normalize_answer(token) for token, _, _ in answer_tokens]
+        answer_norm_tokens = [normalize_answer(token) for token, _, _ in answer_tokens]
         answer_norm_tokens = [norm_token for norm_token in answer_norm_tokens if norm_token]
         
         if not answer_norm_tokens:
@@ -341,13 +341,13 @@ class CoqaPipeline(object):
         if not (rationale_start == -1 or rationale_end == -1):
             rationale_word_start, rationale_word_end = self._char_span_to_word_span(rationale_start, rationale_end, paragraph_tokens)
             rationale_tokens = paragraph_tokens[rationale_word_start:rationale_word_end+1]
-            rationale_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in rationale_tokens]
+            rationale_norm_tokens = [(normalize_answer(token), start, end) for token, start, end in rationale_tokens]
             match_score, answer_start, answer_end = self._search_best_span(rationale_norm_tokens, answer_norm_tokens)
             
             if match_score > 0.0:
                 return answer_start, answer_end
         
-        paragraph_norm_tokens = [(CoQAEvaluator.normalize_answer(token), start, end) for token, start, end in paragraph_tokens]
+        paragraph_norm_tokens = [(normalize_answer(token), start, end) for token, start, end in paragraph_tokens]
         match_score, answer_start, answer_end = self._search_best_span(paragraph_norm_tokens, answer_norm_tokens)
         
         if match_score > 0.0:
@@ -385,7 +385,7 @@ class CoqaPipeline(object):
     
     def _normalize_answer(self,
                           answer):
-        norm_answer = CoQAEvaluator.normalize_answer(answer)
+        norm_answer = normalize_answer(answer)
         norm_answer_tokens = norm_answer.split(" ")
         
         if not norm_answer_tokens:
@@ -686,7 +686,7 @@ class XLNetExampleProcessor(object):
         
         return best_doc_idx
     
-    def convert_coqa_example(self,
+    def convert_quac_example(self,
                              example,
                              logging=False):
         """Converts a single `InputExample` into a single `InputFeatures`."""
@@ -944,7 +944,7 @@ class XLNetExampleProcessor(object):
             if idx % 1000 == 0:
                 tf.logging.info("Converting example %d of %d" % (idx, len(examples)))
 
-            feature_list = self.convert_coqa_example(example, logging=(idx < 20))
+            feature_list = self.convert_quac_example(example, logging=(idx < 20))
             features.extend(feature_list)
         
         tf.logging.info("Generate %d features from %d examples" % (len(features), len(examples)))
@@ -1130,7 +1130,7 @@ class XLNetModelBuilder(object):
                       is_unk=None,
                       is_yes=None,
                       is_no=None):
-        """Creates XLNet-CoQA model"""
+        """Creates XLNet-QuAC model"""
         model = xlnet.XLNetModel(
             xlnet_config=self.model_config,
             run_config=xlnet.create_run_config(is_training, True, FLAGS),
@@ -1143,7 +1143,7 @@ class XLNetModelBuilder(object):
         output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                      # [l,b,h] --> [b,l,h]
         
         predicts = {}
-        with tf.variable_scope("coqa", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("quac", reuse=tf.AUTO_REUSE):
             with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
                 start_result = output_result                                                                                     # [b,l,h]
                 start_result_mask = 1 - p_mask                                                                                     # [b,l]
@@ -1538,7 +1538,7 @@ def main(_):
         os.mkdir(FLAGS.output_dir)
     
     task_name = FLAGS.task_name.lower()
-    data_pipeline = CoqaPipeline(
+    data_pipeline = QuacPipeline(
         data_dir=FLAGS.data_dir,
         task_name=task_name,
         num_turn=FLAGS.num_turn)
