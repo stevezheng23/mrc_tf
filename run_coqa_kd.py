@@ -107,7 +107,8 @@ class InputExample(object):
                  start_position=None,
                  answer_type=None,
                  answer_subtype=None,
-                 is_skipped=False):
+                 is_skipped=False,
+                 soft_target=None):
         self.qas_id = qas_id
         self.question_text = question_text
         self.paragraph_text = paragraph_text
@@ -116,6 +117,7 @@ class InputExample(object):
         self.answer_type = answer_type
         self.answer_subtype = answer_subtype
         self.is_skipped = is_skipped
+        self.soft_target = soft_target
     
     def __str__(self):
         return self.__repr__()
@@ -153,7 +155,14 @@ class InputFeatures(object):
                  is_yes=None,
                  is_no=None,
                  number=None,
-                 option=None):
+                 option=None,
+                 start_target=None,
+                 end_target=None,
+                 unk_target=None,
+                 yes_target=None,
+                 no_target=None,
+                 number_target=None,
+                 option_target=None):
         self.unique_id = unique_id
         self.qas_id = qas_id
         self.doc_idx = doc_idx
@@ -173,6 +182,31 @@ class InputFeatures(object):
         self.is_no = is_no
         self.number = number
         self.option = option
+        self.start_target = start_target
+        self.end_target = end_target
+        self.unk_target = unk_target
+        self.yes_target = yes_target
+        self.no_target = no_target
+        self.number_target = number_target
+        self.option_target = option_target
+
+class SoftTarget(object):
+    """A single CoQA soft target."""
+    def __init__(self,
+                 start_target,
+                 end_target,
+                 unk_target,
+                 yes_target,
+                 no_target,
+                 number_target,
+                 option_target):
+        self.start_target = start_target
+        self.end_target = end_target
+        self.unk_target = unk_target
+        self.yes_target = yes_target
+        self.no_target = no_target
+        self.number_target = number_target
+        self.option_target = option_target
 
 class OutputResult(object):
     """A single CoQA result."""
@@ -224,7 +258,7 @@ class CoqaPipeline(object):
     
     def get_train_examples(self):
         """Gets a collection of `InputExample`s for the train set."""
-        data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
+        data_path = os.path.join(self.data_dir, "train-{0}.kd.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
         example_list = [example for example in example_list if not example.is_skipped]
@@ -232,7 +266,7 @@ class CoqaPipeline(object):
     
     def get_dev_examples(self):
         """Gets a collection of `InputExample`s for the dev set."""
-        data_path = os.path.join(self.data_dir, "dev-{0}.json".format(self.task_name))
+        data_path = os.path.join(self.data_dir, "dev-{0}.kd.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
         return example_list
@@ -486,10 +520,11 @@ class CoqaPipeline(object):
             
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
+            targets = sorted(data["targets"], key=lambda x: x["turn_id"]) if "targets" in data else [None] * len(answers)
             
             question_history = []
-            qas = list(zip(questions, answers))
-            for i, (question, answer) in enumerate(qas):
+            qas = list(zip(questions, answers, targets))
+            for i, (question, answer, target) in enumerate(qas):
                 qas_id = "{0}_{1}".format(data_id, i+1)
                 
                 answer_type, answer_subtype = self._get_answer_type(question, answer)
@@ -504,6 +539,18 @@ class CoqaPipeline(object):
                     start_position = -1
                     orig_answer_text = ""
                 
+                if target is not None:
+                    soft_target = SoftTarget(
+                        start_target=target["start_target"],
+                        end_target=target["end_target"],
+                        unk_target=target["unk_target"],
+                        yes_target=target["yes_target"],
+                        no_target=target["no_target"],
+                        number_target=target["number_target"],
+                        option_target=target["option_target"])
+                else:
+                    soft_target = None
+                
                 example = InputExample(
                     qas_id=qas_id,
                     question_text=question_text,
@@ -512,7 +559,8 @@ class CoqaPipeline(object):
                     start_position=start_position,
                     answer_type=answer_type,
                     answer_subtype=answer_subtype,
-                    is_skipped=is_skipped)
+                    is_skipped=is_skipped,
+                    soft_target=soft_target)
 
                 examples.append(example)
         
@@ -976,6 +1024,24 @@ class XLNetExampleProcessor(object):
                     tf.logging.info("answer_type: %s" % example.answer_type)
                     tf.logging.info("answer_subtype: %s" % example.answer_subtype)
             
+            if example.soft_target is not None:
+                start_target = example.soft_target.start_target
+                end_target = example.soft_target.end_target
+                unk_target = example.soft_target.unk_target
+                yes_target = example.soft_target.yes_target
+                no_target = example.soft_target.no_target
+                number_target = example.soft_target.number_target
+                option_target = example.soft_target.option_target
+            else:
+                start_target = None
+                end_target = None
+                unk_target = None
+                yes_target = None
+                no_target = None
+                number_target = None
+                option_target = None
+
+            
             feature = InputFeatures(
                 unique_id=self.unique_id,
                 qas_id=example.qas_id,
@@ -995,7 +1061,14 @@ class XLNetExampleProcessor(object):
                 is_yes=is_yes,
                 is_no=is_no,
                 number=number,
-                option=option)
+                option=option,
+                start_target=start_target,
+                end_target=end_target,
+                unk_target=unk_target,
+                yes_target=yes_target,
+                no_target=no_target,
+                number_target=number_target,
+                option_target=option_target)
             
             feature_list.append(feature)
             self.unique_id += 1
@@ -1044,6 +1117,21 @@ class XLNetExampleProcessor(object):
                 features["is_no"] = create_float_feature([1 if feature.is_no else 0])
                 features["number"] = create_float_feature([feature.number])
                 features["option"] = create_float_feature([feature.option])
+                
+                if feature.start_target is not None:
+                    features["start_target"] = create_float_feature(feature.start_target)
+                if feature.end_target is not None:
+                    features["end_target"] = create_float_feature(feature.end_target)
+                if feature.unk_target is not None:
+                    features["unk_target"] = create_float_feature([feature.unk_target])
+                if feature.yes_target is not None:
+                    features["yes_target"] = create_float_feature([feature.yes_target])
+                if feature.no_target is not None:
+                    features["no_target"] = create_float_feature([feature.no_target])
+                if feature.number_target is not None:
+                    features["number_target"] = create_float_feature(feature.number_target)
+                if feature.option_target is not None:
+                    features["option_target"] = create_float_feature(feature.option_target)
                 
                 tf_example = tf.train.Example(features=tf.train.Features(feature=features))
                 writer.write(tf_example.SerializeToString())
@@ -1256,7 +1344,7 @@ class XLNetModelBuilder(object):
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
                     
                     end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
-                        reuse=False, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")     # [b,l,h] --> [b,l,h]
+                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")      # [b,l,h] --> [b,l,h]
                     
                     end_result = tf.layers.dense(end_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
@@ -1286,7 +1374,7 @@ class XLNetModelBuilder(object):
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
                     
                     end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
-                        reuse=False, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm") # [b,l,k,h] --> [b,l,k,h]
+                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")  # [b,l,k,h] --> [b,l,k,h]
                     
                     end_result = tf.layers.dense(end_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
