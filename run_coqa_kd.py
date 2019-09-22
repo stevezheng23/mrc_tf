@@ -1040,7 +1040,6 @@ class XLNetExampleProcessor(object):
                 no_target = None
                 number_target = None
                 option_target = None
-
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
@@ -1181,13 +1180,13 @@ class XLNetInputBuilder(object):
             name_to_features["number"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["option"] = tf.FixedLenFeature([], tf.float32)
             
-            name_to_features["start_target"] = tf.FixedLenFeature([], tf.int64)
-            name_to_features["end_target"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["start_target"] = tf.FixedLenFeature([seq_length], tf.float32)
+            name_to_features["end_target"] = tf.FixedLenFeature([seq_length], tf.float32)
             name_to_features["unk_target"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["yes_target"] = tf.FixedLenFeature([], tf.float32)
             name_to_features["no_target"] = tf.FixedLenFeature([], tf.float32)
-            name_to_features["number_target"] = tf.FixedLenFeature([], tf.float32)
-            name_to_features["option_target"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["number_target"] = tf.FixedLenFeature([12], tf.float32)
+            name_to_features["option_target"] = tf.FixedLenFeature([3], tf.float32)
         else:
             name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
         
@@ -1534,8 +1533,11 @@ class XLNetModelBuilder(object):
                     predicts["opt_kd_probs"] = opt_kd_probs
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
-                loss = tf.constant(0.0, dtype=tf.float32)
+                loss = tf.constant(0.0, dtype=tf.float32, name="loss")
+                kd_loss = tf.constant(0.0, dtype=tf.float32, name="kd_loss")
+                
                 if is_training:
+                    # During training, compute loss based on groud truth label
                     start_label = start_positions                                                                                    # [b]
                     start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                  # [b,l] --> [b]
                     start_loss = self._compute_loss(start_label, start_label_mask, start_result, start_result_mask)                  # [b]
@@ -1572,10 +1574,10 @@ class XLNetModelBuilder(object):
                     # During kd training, compute kd loss based on soft target
                     start_kd_label = start_target                                                                                  # [b,l]
                     start_kd_label_mask = 1 - p_mask                                                                               # [b,l]
-                    start_kd_loss = self._compute_kd_loss(start_kd_label, start_kd_label_mask, start_kd_result, start_kd_result_mask)
+                    start_kd_loss = self._compute_kd_loss(start_kd_label, start_kd_label_mask, start_kd_result, start_result_mask)
                     end_kd_label = end_target                                                                                      # [b,l]
                     end_kd_label_mask = 1 - p_mask                                                                                 # [b,l]
-                    end_kd_loss = self._compute_kd_loss(end_kd_label, end_kd_label_mask, end_kd_result, end_kd_result_mask)
+                    end_kd_loss = self._compute_kd_loss(end_kd_label, end_kd_label_mask, end_kd_result, end_result_mask)
                     kd_loss += tf.reduce_mean(start_kd_loss + end_kd_loss)
                     
                     unk_kd_label = unk_target                                                                                        # [b]
@@ -1595,15 +1597,17 @@ class XLNetModelBuilder(object):
                     
                     num_kd_label = number_target                                                                                  # [b,12]
                     num_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                # [b,l] --> [b,1]
-                    num_kd_loss = self._compute_kd_loss(num_kd_label, num_kd_label_mask, num_kd_result, num_kd_result_mask)
+                    num_kd_loss = self._compute_kd_loss(num_kd_label, num_kd_label_mask, num_kd_result, num_result_mask)
                     kd_loss += tf.reduce_mean(num_kd_loss)
                     
                     opt_kd_label = option_target                                                                                   # [b,3]
                     opt_kd_label_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                # [b,l] --> [b,1]
-                    opt_kd_loss = self._compute_kd_loss(opt_kd_label, opt_kd_label_mask, opt_kd_result, opt_kd_result_mask)
+                    opt_kd_loss = self._compute_kd_loss(opt_kd_label, opt_kd_label_mask, opt_kd_result, opt_result_mask)
                     kd_loss += tf.reduce_mean(opt_kd_loss)
                     
-                    loss += kd_loss * (self.kd_temperature**2)
+                    kd_loss *= self.kd_temperature**2
+                
+                loss += kd_loss
         
         return loss, predicts
     
