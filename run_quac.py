@@ -1175,8 +1175,8 @@ class XLNetModelBuilder(object):
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
                     
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
-                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)                # [b,l,h] --> [b,l,h]
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
+                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")      # [b,l,h] --> [b,l,h]
                     
                     end_result = tf.layers.dense(end_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
@@ -1202,8 +1202,8 @@ class XLNetModelBuilder(object):
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
                     
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True,
-                        activation_fn=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True)            # [b,l,k,h] --> [b,l,k,h]
+                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
+                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")  # [b,l,k,h] --> [b,l,k,h]
                     
                     end_result = tf.layers.dense(end_result, units=1, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
