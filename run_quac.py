@@ -1143,7 +1143,7 @@ class XLNetModelBuilder(object):
         output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                      # [l,b,h] --> [b,l,h]
         
         predicts = {}
-        with tf.variable_scope("quac", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("mrc", reuse=tf.AUTO_REUSE):
             with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
                 start_result = output_result                                                                                     # [b,l,h]
                 start_result_mask = 1 - p_mask                                                                                     # [b,l]
