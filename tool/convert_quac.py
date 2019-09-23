@@ -8,7 +8,7 @@ def add_arguments(parser):
     parser.add_argument("--output_file", help="path to output file", required=True)
     parser.add_argument("--answer_threshold", help="threshold of answer", required=False, default=0.1, type=float)
 
-def convert_coqa(input_file,
+def convert_quac(input_file,
                  output_file,
                  answer_threshold):
     with open(input_file, "r") as file:
@@ -42,4 +42,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     add_arguments(parser)
     args = parser.parse_args()
-    convert_coqa(args.input_file, args.output_file, args.answer_threshold)
+    convert_quac(args.input_file, args.output_file, args.answer_threshold)
