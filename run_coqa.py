@@ -1543,17 +1543,17 @@ class XLNetPredictProcessor(object):
                 example_no_score = max(example_no_score, float(example_result.no_prob))
                 
                 num_probs = [float(num_prob) for num_prob in example_result.num_probs]
-                num_id = int(np.argmax(num_probs))
+                num_id = int(np.argmax(num_probs[1:])) + 1
                 num_score = num_probs[num_id]
-                if num_id != 0 and example_num_score < num_score:
+                if example_num_score < num_score:
                     example_num_id = num_id
                     example_num_score = num_score
                     example_num_probs = num_probs
                 
                 opt_probs = [float(opt_prob) for opt_prob in example_result.opt_probs]
-                opt_id = int(np.argmax(opt_probs))
+                opt_id = int(np.argmax(opt_probs[1:])) + 1
                 opt_score = opt_probs[opt_id]
-                if opt_id != 0 and example_opt_score < opt_score:
+                if example_opt_score < opt_score:
                     example_opt_id = opt_id
                     example_opt_score = opt_score
                     example_opt_probs = opt_probs
@@ -1578,11 +1578,11 @@ class XLNetPredictProcessor(object):
                         
                         example_all_predicts.append({
                             "unique_id": example_result.unique_id,
-                            "start_prob": start_prob,
-                            "start_index": start_index,
-                            "end_prob": end_prob,
-                            "end_index": end_index,
-                            "predict_score": np.log(start_prob) + np.log(end_prob)
+                            "start_prob": float(start_prob),
+                            "start_index": int(start_index),
+                            "end_prob": float(end_prob),
+                            "end_index": int(end_index),
+                            "predict_score": float(np.log(start_prob) + np.log(end_prob))
                         })
             
             example_all_predicts = sorted(example_all_predicts, key=lambda x: x["predict_score"], reverse=True)
@@ -1605,7 +1605,7 @@ class XLNetPredictProcessor(object):
                 
                 example_top_predicts.append({
                     "predict_text": predict_text,
-                    "predict_score": float(example_predict["predict_score"])
+                    "predict_score": example_predict["predict_score"]
                 })
             
             if len(example_top_predicts) == 0:
