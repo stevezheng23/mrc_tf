@@ -370,6 +370,9 @@ class CoqaPipeline(object):
                          answer,
                          answer_type,
                          paragraph_text):
+        if answer_type != "span":
+            return "", -1, -1, False
+        
         input_text = answer["input_text"].strip().lower()
         span_start, span_end = answer["span_start"], answer["span_end"]
         if span_start == -1 or span_end == -1:
@@ -384,7 +387,7 @@ class CoqaPipeline(object):
         
         if span_start == -1 or span_end == -1:
             answer_text = ""
-            is_skipped = (answer_type == "span")
+            is_skipped = True
         else:
             answer_text = paragraph_text[span_start:span_end+1]
             is_skipped = False
@@ -394,15 +397,11 @@ class CoqaPipeline(object):
     def _normalize_answer(self,
                           answer):
         norm_answer = CoQAEvaluator.normalize_answer(answer)
-        norm_answer_tokens = norm_answer.split(" ")
         
-        if not norm_answer_tokens:
-            return norm_answer
-        
-        if norm_answer_tokens[0] == "yes" or norm_answer in ["yes", "yese", "ye", "es"]:
+        if norm_answer in ["yes", "yese", "ye", "es"]:
             return "yes"
         
-        if norm_answer_tokens[0] == "no" or norm_answer in ["no", "not"]:
+        if norm_answer in ["no", "no not at all", "not", "not yet", "not really"]:
             return "no"
         
         number_lookup = {
@@ -805,7 +804,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if example.answer_type != "unknown" and not example.is_skipped and example.orig_answer_text:
+        if example.answer_type == "span" and not example.is_skipped and example.orig_answer_text:
             raw_start_char_pos = example.start_position
             raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
             tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
@@ -919,7 +918,7 @@ class XLNetExampleProcessor(object):
             else:
                 option = 0
             
-            if not is_unk and example.orig_answer_text:
+            if example.answer_type == "span" and not example.is_skipped and example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
                 if tokenized_start_token_pos >= doc_start and tokenized_end_token_pos <= doc_end:
@@ -948,7 +947,7 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if not is_unk and example.orig_answer_text:
+                if example.answer_type == "span" and not example.is_skipped and example.orig_answer_text:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
                     answer_tokens = input_tokens[start_position:end_position+1]
