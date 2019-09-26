@@ -401,7 +401,7 @@ class CoqaPipeline(object):
         if norm_answer in ["no", "no not at all", "not", "not at all"]:
             return "no"
         
-        if norm_answer in ["0", "zero"]
+        if norm_answer in ["0", "zero"]:
             return "none"
         
         return norm_answer
