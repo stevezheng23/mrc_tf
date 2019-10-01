@@ -398,11 +398,8 @@ class CoqaPipeline(object):
         if norm_answer in ["yes", "yese", "ye", "es"]:
             return "yes"
         
-        if norm_answer in ["no", "no not at all", "not", "not at all"]:
+        if norm_answer in ["no", "no not at all", "not", "not at all", "not yet", "not really"]:
             return "no"
-        
-        if norm_answer in ["0", "zero"]:
-            return "none"
         
         return norm_answer
     
