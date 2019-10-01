@@ -401,6 +401,9 @@ class CoqaPipeline(object):
         if norm_answer in ["no", "no not at all", "not", "not at all"]:
             return "no"
         
+        if norm_answer in ["0", "zero"]:
+            return "none"
+        
         return norm_answer
     
     def _get_answer_type(self,
@@ -417,7 +420,7 @@ class CoqaPipeline(object):
         if norm_answer == "no":
             return "no", None
         
-        if norm_answer in ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]:
+        if norm_answer in ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]:
             return "number", norm_answer
         
         norm_question_tokens = CoQAEvaluator.normalize_answer(question["input_text"]).split(" ")
@@ -896,7 +899,7 @@ class XLNetExampleProcessor(object):
             is_no = (example.answer_type == "no")
             
             if example.answer_type == "number":
-                number_list = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+                number_list = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
                 number = number_list.index(example.answer_subtype) + 1
             else:
                 number = 0
@@ -1310,13 +1313,13 @@ class XLNetModelBuilder(object):
                     predicts["no_prob"] = no_prob
                 
                 with tf.variable_scope("num", reuse=tf.AUTO_REUSE):
-                    num_result = tf.layers.dense(answer_result, units=10, activation=None,
+                    num_result = tf.layers.dense(answer_result, units=12, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="num_project")             # [b,h] --> [b,10]
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="num_project")             # [b,h] --> [b,12]
                     num_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
                     
-                    num_result = self._generate_masked_data(num_result, num_result_mask)                        # [b,10], [b,1] --> [b,10]
-                    num_probs = tf.nn.softmax(num_result, axis=-1)                                                                # [b,10]
+                    num_result = self._generate_masked_data(num_result, num_result_mask)                        # [b,12], [b,1] --> [b,12]
+                    num_probs = tf.nn.softmax(num_result, axis=-1)                                                                # [b,12]
                     predicts["num_probs"] = num_probs
                 
                 with tf.variable_scope("opt", reuse=tf.AUTO_REUSE):

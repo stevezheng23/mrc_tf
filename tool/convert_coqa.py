@@ -29,7 +29,7 @@ def convert_coqa(input_file,
         if score_list[score_idx] >= answer_threshold:
             answer = answer_list[score_idx]
             if answer == "number":
-                answer_list = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+                answer_list = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
                 answer = answer_list[data["num_id"]-1]
             elif answer == "option":
                 answer = data["predict_text"]
