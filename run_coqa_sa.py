@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import sys
-sys.path.append('xlnet') # walkaround due to submodule absolute import...
+sys.path.append('xlnet_plus') # walkaround due to submodule absolute import...
 
 import collections
 import os
@@ -18,7 +18,7 @@ import numpy as np
 import sentencepiece as sp
 
 from tool.eval_coqa import CoQAEvaluator
-from xlnet import xlnet
+from xlnet_plus import xlnet
 import function_builder
 import prepro_utils
 import model_utils

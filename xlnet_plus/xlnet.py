@@ -218,8 +218,8 @@ class XLNetModel(object):
     tfm_args.update(input_args)
 
     with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
-      (self.output, self.new_mems, self.lookup_table
-          ) = modeling.transformer_xl(**tfm_args)
+      (self.output, self.new_mems, self.lookup_table,
+          self.intermediate_output_list) = modeling.transformer_xl(**tfm_args)
 
     self.input_mask = input_mask
     self.initializer = initializer
@@ -265,6 +265,14 @@ class XLNetModel(object):
 
     return self.output
 
+  def get_intermediate_output_list(self):
+    """
+    Returns:
+      float32 Tensor in shape [len, bsz, n_layer, d_model]. The intermediate layer hidden
+      representation of XLNet.
+    """
+
+    return self.intermediate_output_list
   def get_new_memory(self):
     """
     Returns:

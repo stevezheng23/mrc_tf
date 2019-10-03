@@ -571,6 +571,7 @@ def transformer_xl(inp_k, n_token, n_layer, d_model, n_head,
     if mems is None:
       mems = [None] * n_layer
 
+    intermediate_output_list = []
     for i in range(n_layer):
       # cache new mems
       new_mems.append(_cache_mem(output_h, mems[i], mem_len, reuse_len))
@@ -648,12 +649,16 @@ def transformer_xl(inp_k, n_token, n_layer, d_model, n_head,
             is_training=is_training,
             reuse=reuse)
 
+      intermediate_output_list.append(output_g if inp_q is not None else output_h)
+
     if inp_q is not None:
       output = tf.layers.dropout(output_g, dropout, training=is_training)
     else:
       output = tf.layers.dropout(output_h, dropout, training=is_training)
 
-    return output, new_mems, lookup_table
+    intermediate_output_list = [tf.expand_dims(output_i, axis=-2) for output_i in intermediate_output_list]
+
+    return output, new_mems, lookup_table, intermediate_output_list
 
 
 def lm_loss(hidden, target, n_token, d_model, initializer, lookup_table=None,
