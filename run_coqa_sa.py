@@ -52,6 +52,7 @@ flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init
 flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
+flags.DEFINE_integer("num_step", default=2, help="Number of steps for multi-step reasoning.")
 flags.DEFINE_integer("num_turn", default=2, help="Number of turns.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
 flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
@@ -1184,17 +1185,25 @@ class XLNetModelBuilder(object):
         
         initializer = model.get_initializer()
         seq_len = tf.shape(input_ids)[-1]
-        output_result = tf.transpose(model.get_sequence_output(), perm=[1,0,2])                                      # [l,b,h] --> [b,l,h]
+        output_results = [tf.transpose(intermediate_output, perm=[1,0,2])                                            # [l,b,h] --> [b,l,h]
+            for intermediate_output in model.get_intermediate_outputs()[-FLAGS.num_step:]]                                   # n * [b,l,h]
         
         predicts = {}
         with tf.variable_scope("mrc", reuse=tf.AUTO_REUSE):
             with tf.variable_scope("start", reuse=tf.AUTO_REUSE):
-                start_result = output_result                                                                                     # [b,l,h]
+                start_results = []
+                for output_result in output_results:
+                    output_result = tf.layers.dense(output_result, units=1, activation=None,
+                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="start_project")        # [b,l,h] --> [b,l,1]
+                    
+                    start_results.append(output_result)
+                
                 start_result_mask = 1 - p_mask                                                                                     # [b,l]
                 
-                start_result = tf.layers.dense(start_result, units=1, activation=None,
-                    use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                    kernel_regularizer=None, bias_regularizer=None, trainable=True, name="start_project")            # [b,l,h] --> [b,l,1]
+                start_result = tf.layers.dropout(tf.concat(start_results, axis=-1),
+                    rate=(1.0 / FLAGS.num_step), seed=np.random.randint(10000), training=is_training)            # n * [b,l,1] --> [b,l,n]
+                start_result = tf.reduce_mean(start_result, axis=-1, keepdims=True)                                  # [b,l,n] --> [b,l,1]
                 
                 start_result = tf.squeeze(start_result, axis=-1)                                                       # [b,l,1] --> [b,l]
                 start_result = self._generate_masked_data(start_result, start_result_mask)                        # [b,l], [b,l] --> [b,l]
@@ -1209,22 +1218,31 @@ class XLNetModelBuilder(object):
                 if is_training:
                     # During training, compute the end logits based on the ground truth of the start position
                     start_index = self._generate_onehot_label(tf.expand_dims(start_positions, axis=-1), seq_len)         # [b] --> [b,1,l]
-                    feat_result = tf.matmul(start_index, output_result)                                     # [b,1,l], [b,l,h] --> [b,1,h]
+                    feat_result = tf.matmul(start_index, output_results[-1])                                # [b,1,l], [b,l,h] --> [b,1,h]
                     feat_result = tf.tile(feat_result, multiples=[1,seq_len,1])                                      # [b,1,h] --> [b,l,h]
                     
-                    end_result = tf.concat([output_result, feat_result], axis=-1)                          # [b,l,h], [b,l,h] --> [b,l,2h]
+                    end_results = []
+                    for output_result in output_results:
+                        output_result = tf.concat([output_result, feat_result], axis=-1)                   # [b,l,h], [b,l,h] --> [b,l,2h]
+
+                        output_result = tf.layers.dense(output_result, units=self.model_config.d_model, activation=tf.tanh,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,2h] --> [b,l,h]
+
+                        output_result = tf.contrib.layers.layer_norm(output_result, center=True, scale=True, activation_fn=None,
+                            reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")              # [b,l,h]
+
+                        output_result = tf.layers.dense(output_result, units=1, activation=None,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,h] --> [b,l,1]
+                        
+                        end_results.append(output_result)
+                    
                     end_result_mask = 1 - p_mask                                                                                   # [b,l]
                     
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")        # [b,l,2h] --> [b,l,h]
-                    
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
-                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")      # [b,l,h] --> [b,l,h]
-                    
-                    end_result = tf.layers.dense(end_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")          # [b,l,h] --> [b,l,1]
+                    end_result = tf.layers.dropout(tf.concat(end_results, axis=-1),
+                        rate=(1.0 / FLAGS.num_step), seed=np.random.randint(10000), training=is_training)        # n * [b,l,1] --> [b,l,n]
+                    end_result = tf.reduce_mean(end_result, axis=-1, keepdims=True)                                  # [b,l,n] --> [b,l,1]
                     
                     end_result = tf.squeeze(end_result, axis=-1)                                                       # [b,l,1] --> [b,l]
                     end_result = self._generate_masked_data(end_result, end_result_mask)                          # [b,l], [b,l] --> [b,l]
@@ -1232,26 +1250,35 @@ class XLNetModelBuilder(object):
                 else:
                     # During inference, compute the end logits based on beam search
                     start_index = self._generate_onehot_label(start_top_index, seq_len)                                # [b,k] --> [b,k,l]
-                    feat_result = tf.matmul(start_index, output_result)                                     # [b,k,l], [b,l,h] --> [b,k,h]
+                    feat_result = tf.matmul(start_index, output_results[-1])                                # [b,k,l], [b,l,h] --> [b,k,h]
                     feat_result = tf.expand_dims(feat_result, axis=1)                                              # [b,k,h] --> [b,1,k,h]
                     feat_result = tf.tile(feat_result, multiples=[1,seq_len,1,1])                                # [b,1,k,h] --> [b,l,k,h]
                     
-                    end_result = tf.expand_dims(output_result, axis=-2)                                            # [b,l,h] --> [b,l,1,h]
-                    end_result = tf.tile(end_result, multiples=[1,1,FLAGS.start_n_top,1])                        # [b,l,1,h] --> [b,l,k,h]
-                    end_result = tf.concat([end_result, feat_result], axis=-1)                       # [b,l,k,h], [b,l,k,h] --> [b,l,k,2h]
+                    end_results = []
+                    for output_result in output_results:
+                        output_result = tf.expand_dims(output_result, axis=-2)                                     # [b,l,h] --> [b,l,1,h]
+                        output_result = tf.tile(output_result, multiples=[1,1,FLAGS.start_n_top,1])              # [b,l,1,h] --> [b,l,k,h]
+                        output_result = tf.concat([output_result, feat_result], axis=-1)             # [b,l,k,h], [b,l,k,h] --> [b,l,k,2h]
+
+                        output_result = tf.layers.dense(output_result, units=self.model_config.d_model, activation=tf.tanh,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")# [b,l,k,2h] --> [b,l,k,h]
+
+                        output_result = tf.contrib.layers.layer_norm(output_result, center=True, scale=True, activation_fn=None,
+                            reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")            # [b,l,k,h]
+
+                        output_result = tf.layers.dense(output_result, units=1, activation=None,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")  # [b,l,k,h] --> [b,l,k,1]
+                        
+                        end_results.append(output_result)
+                    
                     end_result_mask = tf.expand_dims(1 - p_mask, axis=1)                                               # [b,l] --> [b,1,l]
                     end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
                     
-                    end_result = tf.layers.dense(end_result, units=self.model_config.d_model, activation=tf.tanh,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_modeling")    # [b,l,k,2h] --> [b,l,k,h]
-                    
-                    end_result = tf.contrib.layers.layer_norm(end_result, center=True, scale=True, activation_fn=None,
-                        reuse=None, begin_norm_axis=-1, begin_params_axis=-1, trainable=True, scope="end_norm")  # [b,l,k,h] --> [b,l,k,h]
-                    
-                    end_result = tf.layers.dense(end_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="end_project")      # [b,l,k,h] --> [b,l,k,1]
+                    end_result = tf.layers.dropout(tf.concat(end_results, axis=-1),
+                        rate=(1.0 / FLAGS.num_step), seed=np.random.randint(10000), training=is_training)    # n * [b,l,k,1] --> [b,l,k,n]
+                    end_result = tf.reduce_mean(end_result, axis=-1, keepdims=True)                              # [b,l,k,n] --> [b,l,k,1]
                     
                     end_result = tf.transpose(tf.squeeze(end_result, axis=-1), perm=[0,2,1])                       # [b,l,k,1] --> [b,k,l]
                     end_result = self._generate_masked_data(end_result, end_result_mask)                    # [b,k,l], [b,k,l] --> [b,k,l]
@@ -1263,8 +1290,8 @@ class XLNetModelBuilder(object):
             
             with tf.variable_scope("answer", reuse=tf.AUTO_REUSE):
                 answer_cls_index = self._generate_onehot_label(tf.expand_dims(cls_index, axis=-1), seq_len)              # [b] --> [b,1,l]
-                answer_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_result)             # [b,l], [b,l,h] --> [b,1,h]
-                answer_output_result = tf.matmul(answer_cls_index, output_result)                           # [b,1,l], [b,l,h] --> [b,1,h]
+                answer_feat_result = tf.matmul(tf.expand_dims(start_prob, axis=1), output_results[-1])        # [b,l], [b,l,h] --> [b,1,h]
+                answer_output_result = tf.matmul(answer_cls_index, output_results[-1])                      # [b,1,l], [b,l,h] --> [b,1,h]
                 
                 answer_result = tf.concat([answer_feat_result, answer_output_result], axis=-1)             # [b,1,h], [b,1,h] --> [b,1,2h]
                 answer_result = tf.squeeze(answer_result, axis=1)                                                    # [b,1,2h] --> [b,2h]
