@@ -1367,20 +1367,38 @@ class XLNetModelBuilder(object):
                     predicts["no_prob"] = no_prob
                 
                 with tf.variable_scope("num", reuse=tf.AUTO_REUSE):
-                    num_result = tf.layers.dense(answer_result, units=12, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="num_project")             # [b,h] --> [b,12]
+                    num_results = []
+                    for answer_result in answer_results:
+                        num_result = tf.layers.dense(answer_result, units=12, activation=None,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="num_project")         # [b,h] --> [b,12]
+                        
+                        num_results.append(tf.expand_dims(num_result, axis=-1))                                      # [b,12] --> [b,12,1]
+                    
                     num_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
+                    
+                    num_result = tf.layers.dropout(tf.concat(num_results, axis=-1),
+                        rate=(1.0 / FLAGS.num_step), seed=np.random.randint(10000), training=is_training)      # n * [b,12,1] --> [b,12,n]
+                    num_result = tf.reduce_mean(num_result, axis=-1)                                                 # [b,12,n] --> [b,12]
                     
                     num_result = self._generate_masked_data(num_result, num_result_mask)                        # [b,12], [b,1] --> [b,12]
                     num_probs = tf.nn.softmax(num_result, axis=-1)                                                                # [b,12]
                     predicts["num_probs"] = num_probs
                 
                 with tf.variable_scope("opt", reuse=tf.AUTO_REUSE):
-                    opt_result = tf.layers.dense(answer_result, units=3, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="opt_project")              # [b,h] --> [b,3]
+                    opt_results = []
+                    for answer_result in answer_results:
+                        opt_result = tf.layers.dense(answer_result, units=3, activation=None,
+                            use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
+                            kernel_regularizer=None, bias_regularizer=None, trainable=True, name="opt_project")          # [b,h] --> [b,3]
+                        
+                        opt_results.append(tf.expand_dims(opt_result, axis=-1))                                        # [b,3] --> [b,3,1]
+                    
                     opt_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
+                    
+                    opt_result = tf.layers.dropout(tf.concat(opt_results, axis=-1),
+                        rate=(1.0 / FLAGS.num_step), seed=np.random.randint(10000), training=is_training)        # n * [b,3,1] --> [b,3,n]
+                    opt_result = tf.reduce_mean(opt_result, axis=-1)                                                   # [b,3,n] --> [b,3]
                     
                     opt_result = self._generate_masked_data(opt_result, opt_result_mask)                         # [b,3], [b,1] --> [b,3]
                     opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                # [b,3]
