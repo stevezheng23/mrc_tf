@@ -52,7 +52,6 @@ flags.DEFINE_float("init_range", default=0.1, help="Initialization std when init
 flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all global vars. If false, init trainable vars only.")
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
-flags.DEFINE_integer("num_step", default=2, help="Number of steps for multi-step reasoning.")
 flags.DEFINE_integer("num_turn", default=2, help="Number of turns.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
 flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
@@ -71,6 +70,9 @@ flags.DEFINE_integer("n_best_size", default=5, help="n best size for predictions
 flags.DEFINE_integer("start_n_top", default=5, help="Beam size for span start.")
 flags.DEFINE_integer("end_n_top", default=5, help="Beam size for span end.")
 flags.DEFINE_string("target_eval_key", default="best_f1", help="Use has_ans_f1 for Model I.")
+
+flags.DEFINE_integer("num_step", default=5, help="Number of steps for multi-step reasoning.")
+flags.DEFINE_float("stochastic_rate", default=0.2, help="Answer stochastic drop rate.")
 
 flags.DEFINE_bool("use_bfloat16", default=False, help="Whether to use bfloat16.")
 flags.DEFINE_float("dropout", default=0.1, help="Dropout rate.")
@@ -1186,6 +1188,7 @@ class XLNetModelBuilder(object):
         initializer = model.get_initializer()
         seq_len = tf.shape(input_ids)[-1]
         num_step = max(FLAGS.num_step, 1)
+        stochastic_rate = FLAGS.stochastic_rate if (1 - FLAGS.stochastic_rate) * num_step >= 1.0 else 0.0
         
         output_results = [tf.transpose(intermediate_output, perm=[1,0,2])                                            # [l,b,h] --> [b,l,h]
             for intermediate_output in model.get_intermediate_outputs()[-num_step:]]                                         # n * [b,l,h]
@@ -1204,7 +1207,7 @@ class XLNetModelBuilder(object):
                 start_result_mask = 1 - p_mask                                                                                     # [b,l]
                 
                 start_result = tf.layers.dropout(tf.concat(start_results, axis=-1),
-                    rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)                  # n * [b,l,1] --> [b,l,n]
+                    rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)                   # n * [b,l,1] --> [b,l,n]
                 start_result = tf.reduce_mean(start_result, axis=-1, keepdims=True)                                  # [b,l,n] --> [b,l,1]
                 
                 start_result = tf.squeeze(start_result, axis=-1)                                                       # [b,l,1] --> [b,l]
@@ -1242,7 +1245,7 @@ class XLNetModelBuilder(object):
                     end_result_mask = 1 - p_mask                                                                                   # [b,l]
                     
                     end_result = tf.layers.dropout(tf.concat(end_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)              # n * [b,l,1] --> [b,l,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)               # n * [b,l,1] --> [b,l,n]
                     end_result = tf.reduce_mean(end_result, axis=-1, keepdims=True)                                  # [b,l,n] --> [b,l,1]
                     
                     end_result = tf.squeeze(end_result, axis=-1)                                                       # [b,l,1] --> [b,l]
@@ -1278,7 +1281,7 @@ class XLNetModelBuilder(object):
                     end_result_mask = tf.tile(end_result_mask, multiples=[1,FLAGS.start_n_top,1])                    # [b,1,l] --> [b,k,l]
                     
                     end_result = tf.layers.dropout(tf.concat(end_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)          # n * [b,l,k,1] --> [b,l,k,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)           # n * [b,l,k,1] --> [b,l,k,n]
                     end_result = tf.reduce_mean(end_result, axis=-1, keepdims=True)                              # [b,l,k,n] --> [b,l,k,1]
                     
                     end_result = tf.transpose(tf.squeeze(end_result, axis=-1), perm=[0,2,1])                       # [b,l,k,1] --> [b,k,l]
@@ -1320,7 +1323,7 @@ class XLNetModelBuilder(object):
                     unk_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                     
                     unk_result = tf.layers.dropout(tf.concat(unk_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)                  # n * [b,1] --> [b,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)                   # n * [b,1] --> [b,n]
                     unk_result = tf.reduce_mean(unk_result, axis=-1, keepdims=True)                                      # [b,n] --> [b,1]
                     
                     unk_result = tf.squeeze(unk_result, axis=-1)                                                           # [b,1] --> [b]
@@ -1340,7 +1343,7 @@ class XLNetModelBuilder(object):
                     yes_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
                     
                     yes_result = tf.layers.dropout(tf.concat(yes_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)                  # n * [b,1] --> [b,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)                   # n * [b,1] --> [b,n]
                     yes_result = tf.reduce_mean(yes_result, axis=-1, keepdims=True)                                      # [b,n] --> [b,1]
                     
                     yes_result = tf.squeeze(yes_result, axis=-1)                                                           # [b,1] --> [b]
@@ -1360,7 +1363,7 @@ class XLNetModelBuilder(object):
                     no_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
                     
                     no_result = tf.layers.dropout(tf.concat(no_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)                  # n * [b,1] --> [b,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)                   # n * [b,1] --> [b,n]
                     no_result = tf.reduce_mean(no_result, axis=-1, keepdims=True)                                        # [b,n] --> [b,1]
                     
                     no_result = tf.squeeze(no_result, axis=-1)                                                             # [b,1] --> [b]
@@ -1380,7 +1383,7 @@ class XLNetModelBuilder(object):
                     num_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
                     
                     num_result = tf.layers.dropout(tf.concat(num_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)            # n * [b,12,1] --> [b,12,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)             # n * [b,12,1] --> [b,12,n]
                     num_result = tf.reduce_mean(num_result, axis=-1)                                                 # [b,12,n] --> [b,12]
                     
                     num_result = self._generate_masked_data(num_result, num_result_mask)                        # [b,12], [b,1] --> [b,12]
@@ -1399,11 +1402,11 @@ class XLNetModelBuilder(object):
                     opt_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
                     
                     opt_result = tf.layers.dropout(tf.concat(opt_results, axis=-1),
-                        rate=(1.0 / num_step), seed=np.random.randint(10000), training=is_training)              # n * [b,3,1] --> [b,3,n]
+                        rate=stochastic_rate, seed=np.random.randint(10000), training=is_training)               # n * [b,3,1] --> [b,3,n]
                     opt_result = tf.reduce_mean(opt_result, axis=-1)                                                   # [b,3,n] --> [b,3]
                     
-                    opt_result = self._generate_masked_data(opt_result, opt_result_mask)                         # [b,3], [b,1] --> [b,3]
-                    opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                # [b,3]
+                    opt_result = self._generate_masked_data(opt_result, opt_result_mask)                          # [b,3], [b,1] --> [b,3]
+                    opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                 # [b,3]
                     predicts["opt_probs"] = opt_probs
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
