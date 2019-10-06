@@ -101,6 +101,8 @@ class InputExample(object):
                  qas_id,
                  question_text,
                  paragraph_text,
+                 rationale_answer_text=None,
+                 rationale_start_position=None,
                  orig_answer_text=None,
                  start_position=None,
                  answer_type=None,
@@ -109,6 +111,8 @@ class InputExample(object):
         self.qas_id = qas_id
         self.question_text = question_text
         self.paragraph_text = paragraph_text
+        self.rationale_answer_text = rationale_answer_text
+        self.rationale_start_position = rationale_start_position
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
         self.answer_type = answer_type
@@ -122,9 +126,12 @@ class InputExample(object):
         s = "qas_id: %s" % (prepro_utils.printable_text(self.qas_id))
         s += ", question_text: %s" % (prepro_utils.printable_text(self.question_text))
         s += ", paragraph_text: [%s]" % (prepro_utils.printable_text(self.paragraph_text))
+        if self.rationale_start_position >= 0:
+            s += ", rationale_answer_text: %s" % (prepro_utils.printable_text(self.rationale_answer_text))
+            s += ", rationale_start_position: %d" % (self.rationale_start_position)
         if self.start_position >= 0:
-            s += ", start_position: %d" % (self.start_position)
             s += ", orig_answer_text: %s" % (prepro_utils.printable_text(self.orig_answer_text))
+            s += ", start_position: %d" % (self.start_position)
             s += ", answer_type: %s" % (prepro_utils.printable_text(self.answer_type))
             s += ", answer_subtype: %s" % (prepro_utils.printable_text(self.answer_subtype))
             s += ", is_skipped: %r" % (self.is_skipped)
@@ -145,6 +152,8 @@ class InputFeatures(object):
                  segment_ids,
                  cls_index,
                  para_length,
+                 rationale_start_position=None,
+                 rationale_end_position=None,
                  start_position=None,
                  end_position=None,
                  is_unk=None,
@@ -164,6 +173,8 @@ class InputFeatures(object):
         self.segment_ids = segment_ids
         self.cls_index = cls_index
         self.para_length = para_length
+        self.rationale_start_position = rationale_start_position
+        self.rationale_end_position = rationale_end_position
         self.start_position = start_position
         self.end_position = end_position
         self.is_unk = is_unk
@@ -391,6 +402,17 @@ class CoqaPipeline(object):
         
         return answer_text, span_start, span_end, is_skipped
     
+    def _get_rationale_span(self,
+                            answer,
+                            paragraph_text):
+        span_start, span_end = answer["span_start"], answer["span_end"]
+        if span_start == -1 or span_end == -1:
+            span_text = ""
+        else:
+            span_text = paragraph_text[span_start:span_end]
+        
+        return span_text, span_start, span_end
+    
     def _normalize_answer(self,
                           answer):
         norm_answer = CoQAEvaluator.normalize_answer(answer)
@@ -466,6 +488,7 @@ class CoqaPipeline(object):
                 
                 answer_type, answer_subtype = self._get_answer_type(question, answer)
                 answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
+                rationale_answer_text, rationale_span_start, rationale_span_end = self._get_rationale_span(answer, paragraph_text)
                 question_text = self._get_question_text(question_history, question)
                 question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
                 
@@ -480,6 +503,8 @@ class CoqaPipeline(object):
                     qas_id=qas_id,
                     question_text=question_text,
                     paragraph_text=paragraph_text,
+                    rationale_answer_text=rationale_answer_text,
+                    rationale_start_position=rationale_span_start,
                     orig_answer_text=orig_answer_text,
                     start_position=start_position,
                     answer_type=answer_type,
@@ -793,6 +818,19 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
+        if example.rationale_answer_text:
+            raw_rationale_start_char_pos = example.rationale_start_position
+            raw_rationale_end_char_pos = raw_rationale_start_char_pos + len(example.rationale_answer_text) - 1
+            tokenized_rationale_start_char_pos = self._convert_tokenized_index(
+                raw2tokenized_char_index, raw_rationale_start_char_pos, is_start=True)
+            tokenized_rationale_end_char_pos = self._convert_tokenized_index(
+                raw2tokenized_char_index, raw_rationale_end_char_pos, is_start=False)
+            tokenized_rationale_start_token_pos = char2token_index[tokenized_rationale_start_char_pos]
+            tokenized_rationale_end_token_pos = char2token_index[tokenized_rationale_end_char_pos]
+            assert tokenized_rationale_start_token_pos <= tokenized_rationale_end_token_pos
+        else:
+            tokenized_rationale_start_token_pos = tokenized_rationale_end_token_pos = -1
+        
         if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
             raw_start_char_pos = example.start_position
             raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
@@ -889,6 +927,8 @@ class XLNetExampleProcessor(object):
             assert len(segment_ids) == self.max_seq_length
             assert len(p_mask) == self.max_seq_length
             
+            rationale_start_position = None
+            rationale_end_position = None
             start_position = None
             end_position = None
             is_unk = (example.answer_type == "unknown" or example.is_skipped)
@@ -906,6 +946,19 @@ class XLNetExampleProcessor(object):
                 option = option_list.index(example.answer_subtype) + 1
             else:
                 option = 0
+            
+            if example.rationale_answer_text:
+                doc_start = doc_span["start"]
+                doc_end = doc_start + doc_span["length"] - 1
+                if tokenized_rationale_start_token_pos >= doc_start and tokenized_rationale_end_token_pos <= doc_end:
+                    rationale_start_position = tokenized_rationale_start_token_pos - doc_start
+                    rationale_end_position = tokenized_rationale_end_token_pos - doc_start
+                else:
+                    rationale_start_position = cls_index
+                    rationale_end_position = cls_index
+            else:
+                rationale_start_position = cls_index
+                rationale_end_position = cls_index
             
             if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
                 doc_start = doc_span["start"]
@@ -936,17 +989,23 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
+                if example.rationale_answer_text:
+                    tf.logging.info("rationale_start_position: %s" % str(rationale_start_position))
+                    tf.logging.info("rationale_end_position: %s" % str(rationale_end_position))
+                    rationale_answer_tokens = input_tokens[rationale_start_position:rationale_end_position+1]
+                    rationale_answer_text = prepro_utils.printable_text(
+                        "".join(rationale_answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
+                    tf.logging.info("rationale_answer_text: %s" % rationale_answer_text)
+                
                 if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
                     answer_tokens = input_tokens[start_position:end_position+1]
                     answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                     tf.logging.info("answer_text: %s" % answer_text)
-                    tf.logging.info("answer_type: %s" % example.answer_type)
-                    tf.logging.info("answer_subtype: %s" % example.answer_subtype)
-                else:
-                    tf.logging.info("answer_type: %s" % example.answer_type)
-                    tf.logging.info("answer_subtype: %s" % example.answer_subtype)
+                
+                tf.logging.info("answer_type: %s" % example.answer_type)
+                tf.logging.info("answer_subtype: %s" % example.answer_subtype)
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
@@ -961,6 +1020,8 @@ class XLNetExampleProcessor(object):
                 segment_ids=segment_ids,
                 cls_index=cls_index,
                 para_length=doc_para_length,
+                rationale_start_position=rationale_start_position,
+                rationale_end_position=rationale_end_position,
                 start_position=start_position,
                 end_position=end_position,
                 is_unk=is_unk,
@@ -1009,6 +1070,8 @@ class XLNetExampleProcessor(object):
                 features["segment_ids"] = create_int_feature(feature.segment_ids)
                 features["cls_index"] = create_int_feature([feature.cls_index])
                 
+                features["rationale_start_position"] = create_int_feature([feature.rationale_start_position])
+                features["rationale_end_position"] = create_int_feature([feature.rationale_end_position])
                 features["start_position"] = create_int_feature([feature.start_position])
                 features["end_position"] = create_int_feature([feature.end_position])
                 features["is_unk"] = create_float_feature([1 if feature.is_unk else 0])
@@ -1057,6 +1120,8 @@ class XLNetInputBuilder(object):
         }
         
         if is_training:
+            name_to_features["rationale_start_position"] = tf.FixedLenFeature([], tf.int64)
+            name_to_features["rationale_end_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["end_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["is_unk"] = tf.FixedLenFeature([], tf.float32)
@@ -1167,6 +1232,8 @@ class XLNetModelBuilder(object):
                       p_mask,
                       segment_ids,
                       cls_index,
+                      rationale_start_positions=None,
+                      rationale_end_positions=None,
                       start_positions=None,
                       end_positions=None,
                       is_unk=None,
@@ -1388,6 +1455,8 @@ class XLNetModelBuilder(object):
             cls_index = features["cls_index"]
             
             if is_training:
+                rationale_start_position = features["rationale_start_position"]
+                rationale_end_position = features["rationale_end_position"]
                 start_position = features["start_position"]
                 end_position = features["end_position"]
                 is_unk = features["is_unk"]
@@ -1396,6 +1465,8 @@ class XLNetModelBuilder(object):
                 number = features["number"]
                 option = features["option"]
             else:
+                rationale_start_position = None
+                rationale_end_position = None
                 start_position = None
                 end_position = None
                 is_unk = None
@@ -1405,7 +1476,7 @@ class XLNetModelBuilder(object):
                 option = None
             
             loss, predicts = self._create_model(is_training, input_ids, input_mask, p_mask, segment_ids, cls_index,
-                start_position, end_position, is_unk, is_yes, is_no, number, option)
+                rationale_start_position, rationale_end_position, start_position, end_position, is_unk, is_yes, is_no, number, option)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
