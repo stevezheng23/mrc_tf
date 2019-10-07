@@ -53,6 +53,7 @@ flags.DEFINE_bool("init_global_vars", default=False, help="If true, init all glo
 
 flags.DEFINE_bool("lower_case", default=False, help="Enable lower case nor not.")
 flags.DEFINE_integer("num_turn", default=2, help="Number of turns.")
+flags.DEFINE_integer("num_negative", default=5, help="Number of negative samples.")
 flags.DEFINE_integer("doc_stride", default=128, help="Doc stride")
 flags.DEFINE_integer("max_seq_length", default=512, help="Max sequence length")
 flags.DEFINE_integer("max_query_length", default=128, help="Max query length")
@@ -1229,9 +1230,10 @@ class XLNetModelBuilder(object):
                            rationale_start_position,
                            rationale_end_position,
                            start_position,
-                           end_position):
+                           end_position,
+                           num_negative):
         """Sample negative start/end postions"""
-        pass
+        return []
     
     def _create_model(self,
                       is_training,
@@ -1417,7 +1419,7 @@ class XLNetModelBuilder(object):
                     
                     negative_loss = tf.constant(0.0, dtype=tf.float32)
                     negative_positions = self._negative_sampling(rationale_start_position,
-                        rationale_end_position, start_position, end_position, num_negative)
+                        rationale_end_position, start_position, end_position, FLAGS.num_negative)
                     for negative_start_position, negative_end_position in negative_positions:
                         negative_start_label = negative_start_position
                         negative_start_label_mask = tf.reduce_max(1 - p_mask, axis=-1)
@@ -1429,7 +1431,7 @@ class XLNetModelBuilder(object):
                             negative_end_label_mask, end_result, end_result_mask)
                         negative_loss += tf.reduce_mean(negative_start_loss + negative_end_loss)
                     
-                    negative_loss /= num_negative
+                    negative_loss /= FLAGS.num_negative
                     loss -= negative_loss
                     
                     unk_label = is_unk                                                                                               # [b]
