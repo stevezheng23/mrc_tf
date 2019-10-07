@@ -1237,7 +1237,9 @@ class XLNetModelBuilder(object):
         rationale_end_position_list = tf.unstack(rationale_end_positions, axis=0)
         start_position_list = tf.unstack(start_positions, axis=0)
         end_position_list = tf.unstack(end_positions, axis=0)
-        reference_position_list = zip(rationale_start_position_list, rationale_end_position_list, start_position_list, end_position_list)
+        
+        reference_position_list = list(zip(rationale_start_position_list,
+            rationale_end_position_list, start_position_list, end_position_list))
         
         negative_position_list = []
         for i in range(num_negative):
@@ -1258,17 +1260,17 @@ class XLNetModelBuilder(object):
                 
                 type_2_negative_start_position = tf.random.uniform(shape=[],
                     minval=tf.minimum(rationale_end_position, end_position),
-                    maxval=tf.maximum(rationale_start_position, start_position) + 1, dtype=tf.int32)
+                    maxval=tf.maximum(rationale_end_position, end_position) + 1, dtype=tf.int32)
                 type_2_negative_end_position = tf.random.uniform(shape=[],
                     minval=type_2_negative_start_position,
-                    maxval=tf.maximum(rationale_start_position, start_position) + 1, dtype=tf.int32)
+                    maxval=tf.maximum(rationale_end_position, end_position) + 1, dtype=tf.int32)
                 type_2_negative_start_position_list.append(type_2_negative_start_position)
                 type_2_negative_end_position_list.append(type_2_negative_end_position)
             
-            type_1_negative_start_position = tf.concat(type_1_negative_start_position_list, axis=-1)
-            type_1_negative_end_position = tf.concat(type_1_negative_end_position_list, axis=-1)
-            type_2_negative_start_position = tf.concat(type_2_negative_start_position_list, axis=-1)
-            type_2_negative_end_position = tf.concat(type_2_negative_end_position_list, axis=-1)
+            type_1_negative_start_position = tf.stack(type_1_negative_start_position_list, axis=0)
+            type_1_negative_end_position = tf.stack(type_1_negative_end_position_list, axis=0)
+            type_2_negative_start_position = tf.stack(type_2_negative_start_position_list, axis=0)
+            type_2_negative_end_position = tf.stack(type_2_negative_end_position_list, axis=0)
             
             negative_position_list.append((type_1_negative_start_position, type_1_negative_end_position))
             negative_position_list.append((type_2_negative_start_position, type_2_negative_end_position))
@@ -1471,10 +1473,10 @@ class XLNetModelBuilder(object):
                         negative_end_label_mask = tf.reduce_max(1 - p_mask, axis=-1)
                         negative_end_loss = self._compute_loss(negative_end_label,
                             negative_end_label_mask, end_result, end_result_mask)
-                        negative_loss += tf.reduce_mean(negative_start_loss + negative_end_loss)
+                        negative_loss += -1.0 * tf.reduce_mean(negative_start_loss + negative_end_loss)
                     
                     negative_loss /= FLAGS.num_negative
-                    loss -= negative_loss
+                    loss += negative_loss
                     
                     unk_label = is_unk                                                                                               # [b]
                     unk_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
