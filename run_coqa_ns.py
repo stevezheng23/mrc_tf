@@ -1227,13 +1227,55 @@ class XLNetModelBuilder(object):
         return loss
     
     def _negative_sampling(self,
-                           rationale_start_position,
-                           rationale_end_position,
-                           start_position,
-                           end_position,
+                           rationale_start_positions,
+                           rationale_end_positions,
+                           start_positions,
+                           end_positions,
                            num_negative):
         """Sample negative start/end postions"""
-        return []
+        rationale_start_position_list = tf.unstack(rationale_start_positions, axis=0)
+        rationale_end_position_list = tf.unstack(rationale_end_positions, axis=0)
+        start_position_list = tf.unstack(start_positions, axis=0)
+        end_position_list = tf.unstack(end_positions, axis=0)
+        reference_position_list = zip(rationale_start_position_list, rationale_end_position_list, start_position_list, end_position_list)
+        
+        negative_position_list = []
+        for i in range(num_negative):
+            type_1_negative_start_position_list = []
+            type_1_negative_end_position_list = []
+            type_2_negative_start_position_list = []
+            type_2_negative_end_position_list = []
+            
+            for rationale_start_position, rationale_end_position, start_position, end_position in reference_position_list:
+                type_1_negative_end_position = tf.random.uniform(shape=[],
+                    minval=tf.minimum(rationale_start_position, start_position),
+                    maxval=tf.maximum(rationale_start_position, start_position) + 1, dtype=tf.int32)
+                type_1_negative_start_position = tf.random.uniform(shape=[],
+                    minval=tf.minimum(rationale_start_position, start_position),
+                    maxval=type_1_negative_end_position + 1, dtype=tf.int32)
+                type_1_negative_start_position_list.append(type_1_negative_start_position)
+                type_1_negative_end_position_list.append(type_1_negative_end_position)
+                
+                type_2_negative_start_position = tf.random.uniform(shape=[],
+                    minval=tf.minimum(rationale_end_position, end_position),
+                    maxval=tf.maximum(rationale_start_position, start_position) + 1, dtype=tf.int32)
+                type_2_negative_end_position = tf.random.uniform(shape=[],
+                    minval=type_2_negative_start_position,
+                    maxval=tf.maximum(rationale_start_position, start_position) + 1, dtype=tf.int32)
+                type_2_negative_start_position_list.append(type_2_negative_start_position)
+                type_2_negative_end_position_list.append(type_2_negative_end_position)
+            
+            type_1_negative_start_position = tf.concat(type_1_negative_start_position_list, axis=-1)
+            type_1_negative_end_position = tf.concat(type_1_negative_end_position_list, axis=-1)
+            type_2_negative_start_position = tf.concat(type_2_negative_start_position_list, axis=-1)
+            type_2_negative_end_position = tf.concat(type_2_negative_end_position_list, axis=-1)
+            
+            negative_position_list.append((type_1_negative_start_position, type_1_negative_end_position))
+            negative_position_list.append((type_2_negative_start_position, type_2_negative_end_position))
+        
+        np.random.shuffle(negative_position_list)
+        negative_position_list = negative_position_list[:num_negative]
+        return negative_position_list
     
     def _create_model(self,
                       is_training,
