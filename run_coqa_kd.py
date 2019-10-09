@@ -2001,7 +2001,7 @@ def main(_):
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
         tf.logging.info("  Num steps = %d", FLAGS.train_steps)
         
-        train_record_file = os.path.join(FLAGS.output_dir, "train-{0}.tfrecord".format(task_name))
+        train_record_file = os.path.join(FLAGS.output_dir, "train-{0}.kd.tfrecord".format(task_name))
         if not os.path.exists(train_record_file) or FLAGS.overwrite_data:
             train_features = example_processor.convert_examples_to_features(train_examples)
             np.random.shuffle(train_features)
@@ -2017,8 +2017,8 @@ def main(_):
         tf.logging.info("  Num examples = %d", len(predict_examples))
         tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
         
-        predict_record_file = os.path.join(FLAGS.output_dir, "dev-{0}.tfrecord".format(task_name))
-        predict_pickle_file = os.path.join(FLAGS.output_dir, "dev-{0}.pkl".format(task_name))
+        predict_record_file = os.path.join(FLAGS.output_dir, "dev-{0}.kd.tfrecord".format(task_name))
+        predict_pickle_file = os.path.join(FLAGS.output_dir, "dev-{0}.kd.pkl".format(task_name))
         if not os.path.exists(predict_record_file) or not os.path.exists(predict_pickle_file) or FLAGS.overwrite_data:
             predict_features = example_processor.convert_examples_to_features(predict_examples)
             example_processor.save_features_as_tfrecord(predict_features, predict_record_file)
