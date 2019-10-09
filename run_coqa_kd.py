@@ -2002,10 +2002,12 @@ def main(_):
         tf.logging.info("  Num steps = %d", FLAGS.train_steps)
         
         train_record_file = os.path.join(FLAGS.output_dir, "train-{0}.kd.tfrecord".format(task_name))
-        if not os.path.exists(train_record_file) or FLAGS.overwrite_data:
+        train_pickle_file = os.path.join(FLAGS.output_dir, "train-{0}.kd.pkl".format(task_name))
+        if not os.path.exists(train_record_file) or not os.path.exists(train_pickle_file) or FLAGS.overwrite_data:
             train_features = example_processor.convert_examples_to_features(train_examples)
             np.random.shuffle(train_features)
             example_processor.save_features_as_tfrecord(train_features, train_record_file)
+            example_processor.save_features_as_pickle(train_features, train_pickle_file)
         
         train_input_fn = XLNetInputBuilder.get_input_fn(train_record_file, FLAGS.max_seq_length, True, True, FLAGS.shuffle_buffer)
         estimator.train(input_fn=train_input_fn, max_steps=FLAGS.train_steps)
