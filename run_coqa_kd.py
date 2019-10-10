@@ -1511,8 +1511,8 @@ class XLNetModelBuilder(object):
                         kernel_regularizer=None, bias_regularizer=None, trainable=True, name="opt_project")              # [b,h] --> [b,3]
                     opt_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                                  # [b,l] --> [b,1]
                     
-                    opt_result = self._generate_masked_data(opt_result, opt_result_mask)                         # [b,3], [b,1] --> [b,3]
-                    opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                # [b,3]
+                    opt_result = self._generate_masked_data(opt_result, opt_result_mask)                          # [b,3], [b,1] --> [b,3]
+                    opt_probs = tf.nn.softmax(opt_result, axis=-1)                                                                 # [b,3]
                     opt_kd_result = opt_result / self.kd_temperature
                     opt_kd_result = self._generate_masked_data(opt_kd_result, opt_result_mask)
                     opt_kd_probs = tf.nn.softmax(opt_kd_result, axis=-1)
