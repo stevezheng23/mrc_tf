@@ -508,7 +508,7 @@ class CoqaPipeline(object):
             
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
-            targets = sorted(data["targets"], key=lambda x: x["turn_id"])
+            targets = sorted(data["targets"], key=lambda x: x["turn_id"]) if "targets" in data else [None] * len(answers)
             
             question_history = []
             qas = list(zip(questions, answers, targets))
