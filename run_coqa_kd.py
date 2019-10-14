@@ -261,7 +261,7 @@ class CoqaPipeline(object):
         data_path = os.path.join(self.data_dir, "train-{0}.kd.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
-        example_list = [example for example in example_list if not example.is_skipped]
+        example_list = [example for example in example_list if not example.is_skipped and example.soft_target]
         return example_list
     
     def get_dev_examples(self):
@@ -508,7 +508,7 @@ class CoqaPipeline(object):
             
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
-            targets = sorted(data["targets"], key=lambda x: x["turn_id"]) if "targets" in data else [None] * len(answers)
+            targets = sorted(data["targets"], key=lambda x: x["turn_id"]) if data["targets"] else [None] * len(answers)
             
             question_history = []
             qas = list(zip(questions, answers, targets))
