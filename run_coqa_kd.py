@@ -508,7 +508,11 @@ class CoqaPipeline(object):
             
             questions = sorted(data["questions"], key=lambda x: x["turn_id"])
             answers = sorted(data["answers"], key=lambda x: x["turn_id"])
-            targets = sorted(data["targets"], key=lambda x: x["turn_id"]) if data["targets"] else [None] * len(answers)
+            if "targets" in data and data["targets"]:
+                targets = sorted(data["targets"], key=lambda x: x["turn_id"]) 
+            else:
+                targets = [{"is_valid": False, "turn_id": answer["turn_id"]} for answer in answers]
+            
             
             question_history = []
             qas = list(zip(questions, answers, targets))
@@ -527,7 +531,7 @@ class CoqaPipeline(object):
                     start_position = -1
                     orig_answer_text = ""
                 
-                if target is not None and target["is_valid"]:
+                if target and target["is_valid"]:
                     soft_target = SoftTarget(
                         start_target=target["start_target"],
                         end_target=target["end_target"],
