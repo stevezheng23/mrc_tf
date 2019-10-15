@@ -359,9 +359,6 @@ class QuacPipeline(object):
                          answer,
                          answer_type,
                          paragraph_text):
-        if answer_type != "span":
-            return "", -1, -1, False
-        
         input_text = answer["input_text"].strip().lower()
         span_start, span_end = answer["span_start"], answer["span_end"]
         if span_start == -1 or span_end == -1:
@@ -376,7 +373,7 @@ class QuacPipeline(object):
         
         if span_start == -1 or span_end == -1:
             answer_text = ""
-            is_skipped = True
+            is_skipped = (answer_type == "span")
         else:
             answer_text = paragraph_text[span_start:span_end+1]
             is_skipped = False
@@ -386,15 +383,11 @@ class QuacPipeline(object):
     def _normalize_answer(self,
                           answer):
         norm_answer = normalize_answer(answer)
-        norm_answer_tokens = norm_answer.split(" ")
         
-        if not norm_answer_tokens:
-            return norm_answer
-        
-        if norm_answer_tokens[0] == "yes" or norm_answer in ["yes", "yese", "ye", "es"]:
+        if norm_answer in ["yes", "yese", "ye", "es"]:
             return "yes"
         
-        if norm_answer_tokens[0] == "no" or norm_answer in ["no", "not"]:
+        if norm_answer in ["no", "no not at all", "not", "not at all", "not yet", "not really"]:
             return "no"
         
         return norm_answer
@@ -873,7 +866,7 @@ class XLNetExampleProcessor(object):
             is_unk = (example.answer_type == "unknown" or example.is_skipped)
             is_yes = (example.answer_type == "yes")
             is_no = (example.answer_type == "no")
-            if not is_unk and not is_yes and not is_no and example.orig_answer_text:
+            if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
                 if tokenized_start_token_pos >= doc_start and tokenized_end_token_pos <= doc_end:
@@ -902,7 +895,7 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if not is_unk and not is_yes and not is_no and example.orig_answer_text:
+                if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
                     answer_tokens = input_tokens[start_position:end_position+1]
@@ -1464,11 +1457,11 @@ class XLNetPredictProcessor(object):
                         
                         example_all_predicts.append({
                             "unique_id": example_result.unique_id,
-                            "start_prob": start_prob,
-                            "start_index": start_index,
-                            "end_prob": end_prob,
-                            "end_index": end_index,
-                            "predict_score": np.log(start_prob) + np.log(end_prob)
+                            "start_prob": float(start_prob),
+                            "start_index": int(start_index),
+                            "end_prob": float(end_prob),
+                            "end_index": int(end_index),
+                            "predict_score": float(np.log(start_prob) + np.log(end_prob))
                         })
             
             example_all_predicts = sorted(example_all_predicts, key=lambda x: x["predict_score"], reverse=True)
@@ -1491,7 +1484,7 @@ class XLNetPredictProcessor(object):
                 
                 example_top_predicts.append({
                     "predict_text": predict_text,
-                    "predict_score": float(example_predict["predict_score"])
+                    "predict_score": example_predict["predict_score"]
                 })
             
             if len(example_top_predicts) == 0:
