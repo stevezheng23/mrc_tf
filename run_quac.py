@@ -226,7 +226,7 @@ class QuacPipeline(object):
                               num_turn):
         question_tokens = []
         question_tokens.extend(['<s>'] + qas["question"].split(' '))
-        question_tokens.extend(['</s>'] + qas["orig_answer"]["answer_start"].split(' '))
+        question_tokens.extend(['</s>'] + qas["orig_answer"]["text"].split(' '))
         
         question_text = " ".join(question_tokens)
         if question_text:
@@ -256,10 +256,10 @@ class QuacPipeline(object):
         for data in data_list:
             for paragraph in data["paragraphs"]:
                 data_id = paragraph["id"]
-                paragraph_text = data["context"]
+                paragraph_text = paragraph["context"]
                 
                 question_history = []
-                for qas in data["qas"]:
+                for qas in paragraph["qas"]:
                     qas_id = qas["id"]
                     
                     yes_no = qas["yesno"]
@@ -682,6 +682,13 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
+            
+            yes_no_list = ['y', 'x', 'n']
+            yes_no = yes_no_list.index(example.yes_no)
+            
+            follow_up_list = ['y', 'm', 'n']
+            follow_up = follow_up_list.index(example.follow_up)
+            
             if example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
@@ -732,8 +739,8 @@ class XLNetExampleProcessor(object):
                 para_length=doc_para_length,
                 start_position=start_position,
                 end_position=end_position,
-                yes_no=example.yes_no,
-                follow_up=example.follow_up)
+                yes_no=yes_no,
+                follow_up=follow_up)
             
             feature_list.append(feature)
             self.unique_id += 1
