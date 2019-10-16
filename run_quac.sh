@@ -69,10 +69,6 @@ for i in "$@"
       SAVESTEPS="${i#*=}"
       shift
       ;;
-      --answerthreshold=*)
-      ANSWERTHRESHOLD="${i#*=}"
-      shift
-      ;;
     esac
   done
 
@@ -93,7 +89,6 @@ echo "learning rate     = ${LEARNINGRATE}"
 echo "train steps       = ${TRAINSTEPS}"
 echo "warmup steps      = ${WARMUPSTEPS}"
 echo "save steps        = ${SAVESTEPS}"
-echo "answer threshold  = ${ANSWERTHRESHOLD}"
 
 alias python=python3
 mkdir ${OUTPUTDIR}
