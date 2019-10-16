@@ -683,10 +683,10 @@ class XLNetExampleProcessor(object):
             start_position = None
             end_position = None
             
-            yes_no_list = ['y', 'x', 'n']
+            yes_no_list = ["y", "x", "n"]
             yes_no = yes_no_list.index(example.yes_no)
             
-            follow_up_list = ['y', 'm', 'n']
+            follow_up_list = ["y", "m", "n"]
             follow_up = follow_up_list.index(example.follow_up)
             
             if example.orig_answer_text:
