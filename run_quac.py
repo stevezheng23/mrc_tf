@@ -103,15 +103,15 @@ class InputExample(object):
                  paragraph_text,
                  orig_answer_text=None,
                  start_position=None,
-                 answer_type=None,
-                 is_skipped=False):
+                 yes_no=None,
+                 follow_up=None):
         self.qas_id = qas_id
         self.question_text = question_text
         self.paragraph_text = paragraph_text
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
-        self.answer_type=answer_type
-        self.is_skipped=is_skipped
+        self.yes_no = yes_no
+        self.follow_up = follow_up
     
     def __str__(self):
         return self.__repr__()
@@ -123,8 +123,8 @@ class InputExample(object):
         if self.start_position >= 0:
             s += ", start_position: %d" % (self.start_position)
             s += ", orig_answer_text: %s" % (prepro_utils.printable_text(self.orig_answer_text))
-            s += ", answer_type: %s" % (prepro_utils.printable_text(self.answer_type))
-            s += ", is_skipped: %r" % (self.is_skipped)
+            s += ", yes_no: %s" % (prepro_utils.printable_text(self.yes_no))
+            s += ", follow_up: %s" % (prepro_utils.printable_text(self.follow_up))
         return "[{0}]\n".format(s)
 
 class InputFeatures(object):
@@ -144,9 +144,8 @@ class InputFeatures(object):
                  para_length,
                  start_position=None,
                  end_position=None,
-                 is_unk=None,
-                 is_yes=None,
-                 is_no=None):
+                 yes_no=None,
+                 follow_up=None):
         self.unique_id = unique_id
         self.qas_id = qas_id
         self.doc_idx = doc_idx
@@ -161,29 +160,26 @@ class InputFeatures(object):
         self.para_length = para_length
         self.start_position = start_position
         self.end_position = end_position
-        self.is_unk = is_unk
-        self.is_yes = is_yes
-        self.is_no = is_no
+        self.yes_no = yes_no
+        self.follow_up = follow_up
 
 class OutputResult(object):
     """A single QuAC result."""
     def __init__(self,
                  unique_id,
-                 unk_prob,
-                 yes_prob,
-                 no_prob,
                  start_prob,
                  start_index,
                  end_prob,
-                 end_index):
+                 end_index,
+                 yes_no_probs,
+                 follow_up_probs):
         self.unique_id = unique_id
-        self.unk_prob = unk_prob
-        self.yes_prob = yes_prob
-        self.no_prob = no_prob
         self.start_prob = start_prob
         self.start_index = start_index
         self.end_prob = end_prob
         self.end_index = end_index
+        self.yes_no_probs = yes_no_probs
+        self.follow_up_probs = follow_up_probs
 
 class QuacPipeline(object):
     """Pipeline for QuAC dataset."""
@@ -200,7 +196,6 @@ class QuacPipeline(object):
         data_path = os.path.join(self.data_dir, "train-{0}.json".format(self.task_name))
         data_list = self._read_json(data_path)
         example_list = self._get_example(data_list)
-        example_list = [example for example in example_list if not example.is_skipped]
         return example_list
     
     def get_dev_examples(self):
@@ -219,90 +214,19 @@ class QuacPipeline(object):
         else:
             raise FileNotFoundError("data path not found: {0}".format(data_path))
     
-    def _whitespace_tokenize(self,
-                             text):
-        word_spans = []
-        char_list = []
-        for idx, char in enumerate(text):
-            if char != ' ':
-                char_list.append(idx)
-                continue
-            
-            if char_list:
-                word_start = char_list[0]
-                word_end = char_list[-1]
-                word_text = text[word_start:word_end+1]
-                word_spans.append((word_text, word_start, word_end))
-                char_list.clear()
-        
-        if char_list:
-            word_start = char_list[0]
-            word_end = char_list[-1]
-            word_text = text[word_start:word_end+1]
-            word_spans.append((word_text, word_start, word_end))
-        
-        return word_spans
-    
-    def _char_span_to_word_span(self,
-                                char_start,
-                                char_end,
-                                word_spans):
-        word_idx_list = []
-        for word_idx, (_, start, end) in enumerate(word_spans):
-            if end >= char_start:
-                if start <= char_end:
-                    word_idx_list.append(word_idx)
-                else:
-                    break
-        
-        if word_idx_list:
-            word_start = word_idx_list[0]
-            word_end = word_idx_list[-1]
-        else:
-            word_start = -1
-            word_end = -1
-        
-        return word_start, word_end
-    
-    def _search_best_span(self,
-                          context_tokens,
-                          answer_tokens):
-        best_f1 = 0.0
-        best_start, best_end = -1, -1
-        search_index = [idx for idx in range(len(context_tokens)) if context_tokens[idx][0] in answer_tokens]
-        for i in range(len(search_index)):
-            for j in range(i, len(search_index)):
-                candidate_tokens = [context_tokens[k][0] for k in range(search_index[i], search_index[j]+1) if context_tokens[k][0]]
-                common = collections.Counter(candidate_tokens) & collections.Counter(answer_tokens)
-                num_common = sum(common.values())
-                if num_common > 0:
-                    precision = 1.0 * num_common / len(candidate_tokens)
-                    recall = 1.0 * num_common / len(answer_tokens)
-                    f1 = (2 * precision * recall) / (precision + recall)
-                    if f1 > best_f1:
-                        best_f1 = f1
-                        best_start = context_tokens[search_index[i]][1]
-                        best_end = context_tokens[search_index[j]][2]
-        
-        return best_f1, best_start, best_end
-    
     def _get_question_text(self,
                            history,
-                           question):
-        question_tokens = ['<s>'] + question["input_text"].split(' ')
+                           qas):
+        question_tokens = ['<s>'] + qas["question"].split(' ')
         return " ".join(history + [" ".join(question_tokens)])
     
     def _get_question_history(self,
                               history,
-                              question,
-                              answer,
-                              answer_type,
-                              is_skipped,
+                              qas,
                               num_turn):
         question_tokens = []
-        if answer_type != "unknown" or is_skipped:
-            question_tokens.extend(['<s>'] + question["input_text"].split(' '))
-            question_tokens.extend(['</s>'] + answer["input_text"].split(' '))
+        question_tokens.extend(['<s>'] + qas["question"].split(' '))
+        question_tokens.extend(['</s>'] + qas["orig_answer"]["answer_start"].split(' '))
         
         question_text = " ".join(question_tokens)
         if question_text:
@@ -313,152 +237,47 @@ class QuacPipeline(object):
         
         return history
     
-    def _find_answer_span(self,
-                          answer_text,
-                          rationale_text,
-                          rationale_start,
-                          rationale_end):
-        idx = rationale_text.find(answer_text)
-        answer_start = rationale_start + idx
-        answer_end = answer_start + len(answer_text) - 1
-        
-        return answer_start, answer_end
-    
-    def _match_answer_span(self,
-                           answer_text,
-                           rationale_start,
-                           rationale_end,
-                           paragraph_text):
-        answer_tokens = self._whitespace_tokenize(answer_text)
-        answer_norm_tokens = [normalize_answer(token) for token, _, _ in answer_tokens]
-        answer_norm_tokens = [norm_token for norm_token in answer_norm_tokens if norm_token]
-        
-        if not answer_norm_tokens:
-            return -1, -1
-        
-        paragraph_tokens = self._whitespace_tokenize(paragraph_text)
-        
-        if not (rationale_start == -1 or rationale_end == -1):
-            rationale_word_start, rationale_word_end = self._char_span_to_word_span(rationale_start, rationale_end, paragraph_tokens)
-            rationale_tokens = paragraph_tokens[rationale_word_start:rationale_word_end+1]
-            rationale_norm_tokens = [(normalize_answer(token), start, end) for token, start, end in rationale_tokens]
-            match_score, answer_start, answer_end = self._search_best_span(rationale_norm_tokens, answer_norm_tokens)
-            
-            if match_score > 0.0:
-                return answer_start, answer_end
-        
-        paragraph_norm_tokens = [(normalize_answer(token), start, end) for token, start, end in paragraph_tokens]
-        match_score, answer_start, answer_end = self._search_best_span(paragraph_norm_tokens, answer_norm_tokens)
-        
-        if match_score > 0.0:
-            return answer_start, answer_end
-        
-        return -1, -1
-    
     def _get_answer_span(self,
-                         answer,
-                         answer_type,
-                         paragraph_text):
-        input_text = answer["input_text"].strip().lower()
-        span_start, span_end = answer["span_start"], answer["span_end"]
-        if span_start == -1 or span_end == -1:
-            span_text = ""
-        else:
-            span_text = paragraph_text[span_start:span_end].lower()
+                         context,
+                         qas):
+        orig_text = qas["orig_answer"]["text"].strip().lower()
+        answer_start = qas["orig_answer"]["answer_start"]
+        answer_end = answer_start + len(orig_text) - 1
+        answer_text = context[answer_start:answer_end + 1].lower()
         
-        if input_text in span_text:
-            span_start, span_end = self._find_answer_span(input_text, span_text, span_start, span_end)
-        else:
-            span_start, span_end = self._match_answer_span(input_text, span_start, span_end, paragraph_text.lower())
+        assert orig_text == answer_text
+        answer_text = context[answer_start:answer_end + 1]
         
-        if span_start == -1 or span_end == -1:
-            answer_text = ""
-            is_skipped = (answer_type == "span")
-        else:
-            answer_text = paragraph_text[span_start:span_end+1]
-            is_skipped = False
-        
-        return answer_text, span_start, span_end, is_skipped
-    
-    def _normalize_answer(self,
-                          answer):
-        norm_answer = normalize_answer(answer)
-        
-        if norm_answer in ["yes", "yese", "ye", "es"]:
-            return "yes"
-        
-        if norm_answer in ["no", "no not at all", "not", "not at all", "not yet", "not really"]:
-            return "no"
-        
-        return norm_answer
-    
-    def _get_answer_type(self,
-                         answer):
-        norm_answer = self._normalize_answer(answer["input_text"])
-        
-        if norm_answer == "unknown" or "bad_turn" in answer:
-            return "unknown"
-        
-        if norm_answer == "yes":
-            return "yes"
-        
-        if norm_answer == "no":
-            return "no"
-        
-        return "span"
-    
-    def _process_found_answer(self,
-                              raw_answer,
-                              found_answer):
-        raw_answer_tokens = raw_answer.split(' ')
-        found_answer_tokens = found_answer.split(' ')
-        
-        raw_answer_last_token = raw_answer_tokens[-1].lower()
-        found_answer_last_token = found_answer_tokens[-1].lower()
-        
-        if (raw_answer_last_token != found_answer_last_token and
-            raw_answer_last_token == found_answer_last_token.rstrip(string.punctuation)):
-            found_answer_tokens[-1] = found_answer_tokens[-1].rstrip(string.punctuation)
-        
-        return ' '.join(found_answer_tokens)
+        return answer_text, answer_start, answer_end
     
     def _get_example(self,
                      data_list):
         examples = []
         for data in data_list:
-            data_id = data["id"]
-            paragraph_text = data["story"]
-            
-            questions = sorted(data["questions"], key=lambda x: x["turn_id"])
-            answers = sorted(data["answers"], key=lambda x: x["turn_id"])
-            
-            question_history = []
-            qas = list(zip(questions, answers))
-            for i, (question, answer) in enumerate(qas):
-                qas_id = "{0}_{1}".format(data_id, i+1)
+            for paragraph in data["paragraphs"]:
+                data_id = paragraph["id"]
+                paragraph_text = data["context"]
                 
-                answer_type = self._get_answer_type(answer)
-                answer_text, span_start, span_end, is_skipped = self._get_answer_span(answer, answer_type, paragraph_text)
-                question_text = self._get_question_text(question_history, question)
-                question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
-                
-                if answer_type != "unknown" and not is_skipped:
-                    start_position = span_start
-                    orig_answer_text = self._process_found_answer(answer["input_text"], answer_text)
-                else:
-                    start_position = -1
-                    orig_answer_text = ""
-                
-                example = InputExample(
-                    qas_id=qas_id,
-                    question_text=question_text,
-                    paragraph_text=paragraph_text,
-                    orig_answer_text=orig_answer_text,
-                    start_position=start_position,
-                    answer_type=answer_type,
-                    is_skipped=is_skipped)
+                question_history = []
+                for qas in data["qas"]:
+                    qas_id = qas["id"]
+                    
+                    yes_no = qas["yesno"]
+                    follow_up = qas["followup"]
+                    orig_answer_text, start_position, _ = self._get_answer_span(paragraph_text, qas)
+                    question_text = self._get_question_text(question_history, qas)
+                    question_history = self._get_question_history(question_history, qas, self.num_turn)
+                    
+                    example = InputExample(
+                        qas_id=qas_id,
+                        question_text=question_text,
+                        paragraph_text=paragraph_text,
+                        orig_answer_text=orig_answer_text,
+                        start_position=start_position,
+                        yes_no=yes_no,
+                        follow_up=follow_up)
 
-                examples.append(example)
+                    examples.append(example)
         
         return examples
 
@@ -765,7 +584,7 @@ class XLNetExampleProcessor(object):
             token2char_raw_start_index.append(raw_start_pos)
             token2char_raw_end_index.append(raw_end_pos)
         
-        if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
+        if example.orig_answer_text:
             raw_start_char_pos = example.start_position
             raw_end_char_pos = raw_start_char_pos + len(example.orig_answer_text) - 1
             tokenized_start_char_pos = self._convert_tokenized_index(raw2tokenized_char_index, raw_start_char_pos, is_start=True)
@@ -863,10 +682,7 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            is_unk = (example.answer_type == "unknown" or example.is_skipped)
-            is_yes = (example.answer_type == "yes")
-            is_no = (example.answer_type == "no")
-            if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
+            if example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
                 if tokenized_start_token_pos >= doc_start and tokenized_end_token_pos <= doc_end:
@@ -875,7 +691,6 @@ class XLNetExampleProcessor(object):
                 else:
                     start_position = cls_index
                     end_position = cls_index
-                    is_unk = True
             else:
                 start_position = cls_index
                 end_position = cls_index
@@ -895,15 +710,12 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if example.answer_type not in ["unknown", "yes", "no"] and not example.is_skipped and example.orig_answer_text:
+                if example.orig_answer_text:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
-                    answer_tokens = input_tokens[start_position:end_position+1]
+                    answer_tokens = input_tokens[start_position:end_position + 1]
                     answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                     tf.logging.info("answer_text: %s" % answer_text)
-                    tf.logging.info("answer_type: %s" % example.answer_type)
-                else:
-                    tf.logging.info("answer_type: %s" % example.answer_type)
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
@@ -920,9 +732,8 @@ class XLNetExampleProcessor(object):
                 para_length=doc_para_length,
                 start_position=start_position,
                 end_position=end_position,
-                is_unk=is_unk,
-                is_yes=is_yes,
-                is_no=is_no)
+                yes_no=example.yes_no,
+                follow_up=example.follow_up)
             
             feature_list.append(feature)
             self.unique_id += 1
@@ -966,9 +777,8 @@ class XLNetExampleProcessor(object):
                 
                 features["start_position"] = create_int_feature([feature.start_position])
                 features["end_position"] = create_int_feature([feature.end_position])
-                features["is_unk"] = create_float_feature([1 if feature.is_unk else 0])
-                features["is_yes"] = create_float_feature([1 if feature.is_yes else 0])
-                features["is_no"] = create_float_feature([1 if feature.is_no else 0])
+                features["yes_no"] = create_float_feature([feature.yes_no])
+                features["follow_up"] = create_float_feature([feature.follow_up])
                 
                 tf_example = tf.train.Example(features=tf.train.Features(feature=features))
                 writer.write(tf_example.SerializeToString())
@@ -1012,9 +822,8 @@ class XLNetInputBuilder(object):
         if is_training:
             name_to_features["start_position"] = tf.FixedLenFeature([], tf.int64)
             name_to_features["end_position"] = tf.FixedLenFeature([], tf.int64)
-            name_to_features["is_unk"] = tf.FixedLenFeature([], tf.float32)
-            name_to_features["is_yes"] = tf.FixedLenFeature([], tf.float32)
-            name_to_features["is_no"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["yes_no"] = tf.FixedLenFeature([], tf.float32)
+            name_to_features["follow_up"] = tf.FixedLenFeature([], tf.float32)
         
         def _decode_record(record,
                            name_to_features):
@@ -1120,9 +929,8 @@ class XLNetModelBuilder(object):
                       cls_index,
                       start_positions=None,
                       end_positions=None,
-                      is_unk=None,
-                      is_yes=None,
-                      is_no=None):
+                      yes_no=None,
+                      follow_up=None):
         """Creates XLNet-QuAC model"""
         model = xlnet.XLNetModel(
             xlnet_config=self.model_config,
@@ -1225,38 +1033,25 @@ class XLNetModelBuilder(object):
                 answer_result = tf.layers.dropout(answer_result,
                     rate=FLAGS.dropout, seed=np.random.randint(10000), training=is_training)                             # [b,h] --> [b,h]
                 
-                with tf.variable_scope("unk", reuse=tf.AUTO_REUSE):
-                    unk_result = tf.layers.dense(answer_result, units=1, activation=None,
+                with tf.variable_scope("yes_no", reuse=tf.AUTO_REUSE):
+                    yes_no_result = tf.layers.dense(answer_result, units=3, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="unk_project")              # [b,h] --> [b,1]
-                    unk_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_no_project")           # [b,h] --> [b,3]
+                    yes_no_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                               # [b,l] --> [b,1]
                     
-                    unk_result = tf.squeeze(unk_result, axis=-1)                                                           # [b,1] --> [b]
-                    unk_result = self._generate_masked_data(unk_result, unk_result_mask)                                # [b], [b] --> [b]
-                    unk_prob = tf.sigmoid(unk_result)                                                                                # [b]
-                    predicts["unk_prob"] = unk_prob
+                    yes_no_result = self._generate_masked_data(yes_no_result, yes_no_result_mask)                 # [b,3], [b,1] --> [b,3]
+                    yes_no_probs = tf.nn.softmax(yes_no_result, axis=-1)                                                           # [b,3]
+                    predicts["yes_no_probs"] = yes_no_probs
                 
-                with tf.variable_scope("yes", reuse=tf.AUTO_REUSE):
-                    yes_result = tf.layers.dense(answer_result, units=1, activation=None,
+                with tf.variable_scope("follow_up", reuse=tf.AUTO_REUSE):
+                    follow_up_result = tf.layers.dense(answer_result, units=3, activation=None,
                         use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="yes_project")              # [b,h] --> [b,1]
-                    yes_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                   # [b,l] --> [b]
+                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="follow_up_project")        # [b,h] --> [b,3]
+                    follow_up_result_mask = tf.reduce_max(1 - p_mask, axis=-1, keepdims=True)                            # [b,l] --> [b,1]
                     
-                    yes_result = tf.squeeze(yes_result, axis=-1)                                                           # [b,1] --> [b]
-                    yes_result = self._generate_masked_data(yes_result, yes_result_mask)                                # [b], [b] --> [b]
-                    yes_prob = tf.sigmoid(yes_result)                                                                                # [b]
-                    predicts["yes_prob"] = yes_prob
-                
-                with tf.variable_scope("no", reuse=tf.AUTO_REUSE):
-                    no_result = tf.layers.dense(answer_result, units=1, activation=None,
-                        use_bias=True, kernel_initializer=initializer, bias_initializer=tf.zeros_initializer,
-                        kernel_regularizer=None, bias_regularizer=None, trainable=True, name="no_project")               # [b,h] --> [b,1]
-                    no_result_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
-                    
-                    no_result = tf.squeeze(no_result, axis=-1)                                                             # [b,1] --> [b]
-                    no_result = self._generate_masked_data(no_result, no_result_mask)                                   # [b], [b] --> [b]
-                    no_prob = tf.sigmoid(no_result)                                                                                  # [b]
-                    predicts["no_prob"] = no_prob
+                    follow_up_result = self._generate_masked_data(follow_up_result, follow_up_result_mask)        # [b,3], [b,1] --> [b,3]
+                    follow_up_probs = tf.nn.softmax(follow_up_result, axis=-1)                                                     # [b,3]
+                    predicts["follow_up_probs"] = follow_up_probs
             
             with tf.variable_scope("loss", reuse=tf.AUTO_REUSE):
                 loss = tf.constant(0.0, dtype=tf.float32)
@@ -1269,20 +1064,17 @@ class XLNetModelBuilder(object):
                     end_loss = self._compute_loss(end_label, end_label_mask, end_result, end_result_mask)                            # [b]
                     loss += tf.reduce_mean(start_loss + end_loss)
                     
-                    unk_label = is_unk                                                                                               # [b]
-                    unk_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
-                    unk_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=unk_label * unk_label_mask, logits=unk_result)         # [b]
-                    loss += tf.reduce_mean(unk_loss)
+                    yes_no_label = yes_no                                                                                            # [b]
+                    yes_no_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                 # [b,l] --> [b]
+                    yes_no_loss = self._compute_loss(yes_no_label,
+                        yes_no_label_mask, yes_no_result, yes_no_result_mask)                                                        # [b]
+                    loss += tf.reduce_mean(yes_no_loss)
                     
-                    yes_label = is_yes                                                                                               # [b]
-                    yes_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                    # [b,l] --> [b]
-                    yes_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=yes_label * yes_label_mask, logits=yes_result)         # [b]
-                    loss += tf.reduce_mean(yes_loss)
-                    
-                    no_label = is_no                                                                                                 # [b]
-                    no_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                                     # [b,l] --> [b]
-                    no_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=no_label * no_label_mask, logits=no_result)             # [b]
-                    loss += tf.reduce_mean(no_loss)
+                    follow_up_label = follow_up                                                                                      # [b]
+                    follow_up_label_mask = tf.reduce_max(1 - p_mask, axis=-1)                                              # [b,l] --> [b]
+                    follow_up_loss = self._compute_loss(follow_up_label,
+                        follow_up_label_mask, follow_up_result, follow_up_result_mask)                                               # [b]
+                    loss += tf.reduce_mean(follow_up_loss)
         
         return loss, predicts
     
@@ -1309,18 +1101,16 @@ class XLNetModelBuilder(object):
             if is_training:
                 start_position = features["start_position"]
                 end_position = features["end_position"]
-                is_unk = features["is_unk"]
-                is_yes = features["is_yes"]
-                is_no = features["is_no"]
+                yes_no = features["yes_no"]
+                follow_up = features["follow_up"]
             else:
                 start_position = None
                 end_position = None
-                is_unk = None
-                is_yes = None
-                is_no = None
+                yes_no = None
+                follow_up = None
 
             loss, predicts = self._create_model(is_training, input_ids, input_mask,
-                p_mask, segment_ids, cls_index, start_position, end_position, is_unk, is_yes, is_no)
+                p_mask, segment_ids, cls_index, start_position, end_position, yes_no, follow_up)
             
             scaffold_fn = model_utils.init_from_checkpoint(FLAGS)
             
@@ -1337,13 +1127,12 @@ class XLNetModelBuilder(object):
                     mode=mode,
                     predictions={
                         "unique_id": unique_id,
-                        "unk_prob": predicts["unk_prob"],
-                        "yes_prob": predicts["yes_prob"],
-                        "no_prob": predicts["no_prob"],
                         "start_prob": predicts["start_prob"],
                         "start_index": predicts["start_index"],
                         "end_prob": predicts["end_prob"],
-                        "end_index": predicts["end_index"]
+                        "end_index": predicts["end_index"],
+                        "yes_no_probs": predicts["yes_no_probs"],
+                        "follow_up_probs": predicts["follow_up_probs"]
                     },
                     scaffold_fn=scaffold_fn)
             
@@ -1421,9 +1210,12 @@ class XLNetPredictProcessor(object):
                 tf.logging.warning('No feature found for example: {0}'.format(example.qas_id))
                 continue
             
-            example_unk_score = MAX_FLOAT
-            example_yes_score = MIN_FLOAT
-            example_no_score = MIN_FLOAT
+            example_yes_no_id = 0
+            example_yes_no_score = MIN_FLOAT
+            example_yes_no_probs = None
+            example_follow_up_id = 0
+            example_follow_up_score = MIN_FLOAT
+            example_follow_up_probs = None
             
             example_all_predicts = []
             example_features = qas_id_to_features[example.qas_id]
@@ -1433,9 +1225,22 @@ class XLNetPredictProcessor(object):
                     continue
                 
                 example_result = unique_id_to_result[example_feature.unique_id]
-                example_unk_score = min(example_unk_score, float(example_result.unk_prob))
-                example_yes_score = max(example_yes_score, float(example_result.yes_prob))
-                example_no_score = max(example_no_score, float(example_result.no_prob))
+                
+                yes_no_probs = [float(yes_no_prob) for yes_no_prob in example_result.yes_no_probs]
+                yes_no_id = int(np.argmax(yes_no_probs[1:])) + 1
+                yes_no_score = yes_no_probs[yes_no_id]
+                if example_yes_no_score < yes_no_score:
+                    example_yes_no_id = yes_no_id
+                    example_yes_no_score = yes_no_score
+                    example_yes_no_probs = yes_no_probs
+                
+                follow_up_probs = [float(follow_up_prob) for follow_up_prob in example_result.follow_up_probs]
+                follow_up_id = int(np.argmax(follow_up_probs[1:])) + 1
+                follow_up_score = follow_up_probs[follow_up_id]
+                if example_follow_up_score < follow_up_score:
+                    example_follow_up_id = follow_up_id
+                    example_follow_up_score = follow_up_score
+                    example_follow_up_probs = follow_up_probs
                 
                 for i in range(self.start_n_top):
                     start_prob = example_result.start_prob[i]
@@ -1501,9 +1306,12 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_score": example_unk_score,
-                "yes_score": example_yes_score,
-                "no_score": example_no_score,
+                "yes_no_id": example_yes_no_id,
+                "yes_no_score": example_yes_no_score,
+                "yes_no_probs": example_yes_no_probs,
+                "follow_up_id": example_follow_up_id,
+                "follow_up_score": example_follow_up_score,
+                "follow_up_probs": example_follow_up_probs,
                 "predict_text": example_best_predict["predict_text"],
                 "predict_score": example_best_predict["predict_score"]
             })
@@ -1512,9 +1320,12 @@ class XLNetPredictProcessor(object):
                 "qas_id": example.qas_id,
                 "question_text": example_question_text,
                 "label_text": example.orig_answer_text,
-                "unk_score": example_unk_score,
-                "yes_score": example_yes_score,
-                "no_score": example_no_score,
+                "yes_no_id": example_yes_no_id,
+                "yes_no_score": example_yes_no_score,
+                "yes_no_probs": example_yes_no_probs,
+                "follow_up_id": example_follow_up_id,
+                "follow_up_score": example_follow_up_score,
+                "follow_up_probs": example_follow_up_probs,
                 "best_predict": example_best_predict,
                 "top_predicts": example_top_predicts
             })
@@ -1603,9 +1414,8 @@ def main(_):
         
         predict_results = [OutputResult(
             unique_id=result["unique_id"],
-            unk_prob=result["unk_prob"],
-            yes_prob=result["yes_prob"],
-            no_prob=result["no_prob"],
+            yes_no_probs=result["yes_no_probs"].tolist(),
+            follow_up_probs=result["follow_up_probs"].tolist(),
             start_prob=result["start_prob"].tolist(),
             start_index=result["start_index"].tolist(),
             end_prob=result["end_prob"].tolist(),
