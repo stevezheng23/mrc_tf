@@ -240,7 +240,7 @@ class QuacPipeline(object):
     def _get_answer_span(self,
                          context,
                          qas):
-        orig_text = qas["orig_answer"]["text"].strip().lower()
+        orig_text = qas["orig_answer"]["text"].lower()
         answer_start = qas["orig_answer"]["answer_start"]
         answer_end = answer_start + len(orig_text) - 1
         answer_text = context[answer_start:answer_end + 1].lower()
@@ -1234,7 +1234,7 @@ class XLNetPredictProcessor(object):
                 example_result = unique_id_to_result[example_feature.unique_id]
                 
                 yes_no_probs = [float(yes_no_prob) for yes_no_prob in example_result.yes_no_probs]
-                yes_no_id = int(np.argmax(yes_no_probs[1:])) + 1
+                yes_no_id = int(np.argmax(yes_no_probs))
                 yes_no_score = yes_no_probs[yes_no_id]
                 if example_yes_no_score < yes_no_score:
                     example_yes_no_id = yes_no_id
@@ -1242,7 +1242,7 @@ class XLNetPredictProcessor(object):
                     example_yes_no_probs = yes_no_probs
                 
                 follow_up_probs = [float(follow_up_prob) for follow_up_prob in example_result.follow_up_probs]
-                follow_up_id = int(np.argmax(follow_up_probs[1:])) + 1
+                follow_up_id = int(np.argmax(follow_up_probs))
                 follow_up_score = follow_up_probs[follow_up_id]
                 if example_follow_up_score < follow_up_score:
                     example_follow_up_id = follow_up_id
