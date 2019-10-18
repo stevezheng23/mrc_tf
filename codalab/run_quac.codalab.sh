@@ -1,7 +1,6 @@
-while [[ $# -gt 0 ]]
+for arg in "$@"
   do
-    key="$1"
-    case $key in
+    case $arg in
       -i|--inputfile)
       INPUTFILE="$2"
       shift
@@ -15,8 +14,8 @@ while [[ $# -gt 0 ]]
     esac
   done
 
-echo "input file        = ${INPUTFILE}"
-echo "output file       = ${OUTPUTFILE}"
+echo "input file   = ${INPUTFILE}"
+echo "output file  = ${OUTPUTFILE}"
 
 start_time=`date +%s`
 
