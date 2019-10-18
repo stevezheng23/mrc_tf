@@ -682,25 +682,21 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            
-            yes_no_list = ["y", "x", "n"]
-            yes_no = yes_no_list.index(example.yes_no)
-            
-            follow_up_list = ["y", "m", "n"]
-            follow_up = follow_up_list.index(example.follow_up)
-            
             if example.orig_answer_text:
                 doc_start = doc_span["start"]
                 doc_end = doc_start + doc_span["length"] - 1
                 if tokenized_start_token_pos >= doc_start and tokenized_end_token_pos <= doc_end:
                     start_position = tokenized_start_token_pos - doc_start
                     end_position = tokenized_end_token_pos - doc_start
-                else:
-                    start_position = cls_index
-                    end_position = cls_index
-            else:
-                start_position = cls_index
-                end_position = cls_index
+            
+            if start_position is None or end_position is None:
+                continue
+            
+            yes_no_list = ["y", "x", "n"]
+            yes_no = yes_no_list.index(example.yes_no)
+            
+            follow_up_list = ["y", "m", "n"]
+            follow_up = follow_up_list.index(example.follow_up)
             
             if logging:
                 tf.logging.info("*** Example ***")
@@ -723,6 +719,8 @@ class XLNetExampleProcessor(object):
                     answer_tokens = input_tokens[start_position:end_position + 1]
                     answer_text = prepro_utils.printable_text("".join(answer_tokens).replace(prepro_utils.SPIECE_UNDERLINE, " "))
                     tf.logging.info("answer_text: %s" % answer_text)
+                    tf.logging.info("yes_no: %s" % example.yes_no)
+                    tf.logging.info("follow_up: %s" % example.follow_up)
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
