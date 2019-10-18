@@ -20,7 +20,7 @@ cp ../coqa-dev-v1.0.json data/coqa/dev-v1.0.json
 mkdir output
 mkdir output/coqa
 mkdir output/coqa/data
-wget -P output/coqa https://storage.googleapis.com/coqa/coqa_cased_L-24_H-1024_A-16.zip
+wget -P output/coqa https://storage.googleapis.com/mrc_data/coqa/coqa_cased_L-24_H-1024_A-16.zip
 unzip output/coqa/coqa_cased_L-24_H-1024_A-16.zip -d output/coqa/
 mv output/coqa/coqa_cased_L-24_H-1024_A-16 output/coqa/checkpoint
 rm output/coqa/coqa_cased_L-24_H-1024_A-16.zip
