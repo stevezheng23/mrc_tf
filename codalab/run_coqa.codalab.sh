@@ -1,7 +1,6 @@
 start_time=`date +%s`
 
 alias python=python3
-pip install -U sentencepiece
 
 git clone --recurse-submodules https://github.com/stevezheng23/mrc_tf.git
 
@@ -26,7 +25,7 @@ unzip output/coqa/coqa_cased_L-24_H-1024_A-16.zip -d output/coqa/
 mv output/coqa/coqa_cased_L-24_H-1024_A-16 output/coqa/checkpoint
 rm output/coqa/coqa_cased_L-24_H-1024_A-16.zip
 
-CUDA_VISIBLE_DEVICES=0 python run_coqa_v2.py \
+CUDA_VISIBLE_DEVICES=0 python run_coqa.py \
 --spiece_model_file=model/xlnet/cased_L-24_H-1024_A-16/spiece.model \
 --model_config_path=model/xlnet/cased_L-24_H-1024_A-16/xlnet_config.json \
 --init_checkpoint=model/xlnet/cased_L-24_H-1024_A-16/xlnet_model.ckpt \
@@ -38,6 +37,7 @@ CUDA_VISIBLE_DEVICES=0 python run_coqa_v2.py \
 --output_dir=output/coqa/data \
 --model_dir=output/coqa/checkpoint \
 --export_dir=output/coqa/export \
+--num_turn=-1 \
 --max_seq_length=512 \
 --max_query_length=128 \
 --max_answer_length=16 \
@@ -54,7 +54,7 @@ CUDA_VISIBLE_DEVICES=0 python run_coqa_v2.py \
 --do_export=false \
 --overwrite_data=false
 
-python tool/convert_coqa_v2.py \
+python tool/convert_coqa.py \
 --input_file=output/coqa/data/predict.v1.0.summary.json \
 --output_file=output/coqa/data/predict.v1.0.span.json \
 --answer_threshold=0.1
