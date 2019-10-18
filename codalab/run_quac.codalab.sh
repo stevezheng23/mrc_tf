@@ -1,12 +1,15 @@
-for i in "$@"
+while [[ $# -gt 0 ]]
   do
-    case $i in
-      -i=*|--inputfile=*)
-      INPUTFILE="${i#*=}"
+    key="$1"
+    case $key in
+      -i|--inputfile)
+      INPUTFILE="$2"
+      shift
       shift
       ;;
-      -o=*|--outputfile=*)
-      OUTPUTFILE="${i#*=}"
+      -o|--outputfile)
+      OUTPUTFILE="$2"
+      shift
       shift
       ;;
     esac
