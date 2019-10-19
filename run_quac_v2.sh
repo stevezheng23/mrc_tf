@@ -160,7 +160,7 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_quac_v2.py \
 
 python tool/convert_quac_v2.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
---output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json
+--output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
 --answer_threshold=${ANSWERTHRESHOLD}
 
 rm ${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
