@@ -700,7 +700,7 @@ class XLNetExampleProcessor(object):
             
             start_position = None
             end_position = None
-            no_answer = 1.0 if example.no_answer else 0.0
+            no_answer = example.no_answer
             
             if example.orig_answer_text:
                 doc_start = doc_span["start"]
@@ -711,11 +711,11 @@ class XLNetExampleProcessor(object):
                 else:
                     start_position = cls_index
                     end_position = cls_index
-                    no_answer = 1.0
+                    no_answer = True
             else:
                 start_position = cls_index
                 end_position = cls_index
-                no_answer = 1.0
+                no_answer = True
             
             yes_no_list = ["y", "x", "n"]
             yes_no = yes_no_list.index(example.yes_no)
@@ -738,7 +738,7 @@ class XLNetExampleProcessor(object):
                 printable_input_tokens = [prepro_utils.printable_text(input_token) for input_token in input_tokens]
                 tf.logging.info("input_tokens: %s" % input_tokens)
                 
-                if example.orig_answer_text:
+                if not no_answer:
                     tf.logging.info("start_position: %s" % str(start_position))
                     tf.logging.info("end_position: %s" % str(end_position))
                     answer_tokens = input_tokens[start_position:end_position + 1]
@@ -747,6 +747,8 @@ class XLNetExampleProcessor(object):
                     tf.logging.info("no_answer: %s" % example.no_answer)
                     tf.logging.info("yes_no: %s" % example.yes_no)
                     tf.logging.info("follow_up: %s" % example.follow_up)
+                else:
+                    tf.logging.info("no answer")
             
             feature = InputFeatures(
                 unique_id=self.unique_id,
