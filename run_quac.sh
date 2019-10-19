@@ -69,6 +69,10 @@ for i in "$@"
       SAVESTEPS="${i#*=}"
       shift
       ;;
+      --answerthreshold=*)
+      ANSWERTHRESHOLD="${i#*=}"
+      shift
+      ;;
     esac
   done
 
@@ -89,6 +93,7 @@ echo "learning rate     = ${LEARNINGRATE}"
 echo "train steps       = ${TRAINSTEPS}"
 echo "warmup steps      = ${WARMUPSTEPS}"
 echo "save steps        = ${SAVESTEPS}"
+echo "answer threshold  = ${ANSWERTHRESHOLD}"
 
 alias python=python3
 mkdir ${OUTPUTDIR}
@@ -155,7 +160,8 @@ CUDA_VISIBLE_DEVICES=${GPUDEVICE} python run_quac.py \
 
 python tool/convert_quac.py \
 --input_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.summary.json \
---output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json
+--output_file=${OUTPUTDIR}/data/predict.${PREDICTTAG}.span.json \
+--answer_threshold=${ANSWERTHRESHOLD}
 
 rm ${OUTPUTDIR}/data/predict.${PREDICTTAG}.eval.json
 
