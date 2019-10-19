@@ -95,7 +95,7 @@ echo "warmup steps      = ${WARMUPSTEPS}"
 echo "save steps        = ${SAVESTEPS}"
 echo "answer threshold  = ${ANSWERTHRESHOLD}"
 
-#alias python=python3
+alias python=python3
 mkdir ${OUTPUTDIR}
 
 start_time=`date +%s`
