@@ -58,7 +58,7 @@ CUDA_VISIBLE_DEVICES=0 python run_quac.py \
 --export_dir=output/quac/export \
 --num_turn=-1 \
 --max_seq_length=512 \
---max_query_length=192 \
+--max_query_length=128 \
 --max_answer_length=32 \
 --train_batch_size=48 \
 --predict_batch_size=12 \
@@ -75,7 +75,8 @@ CUDA_VISIBLE_DEVICES=0 python run_quac.py \
 
 python tool/convert_quac.py \
 --input_file=output/quac/data/predict.v0.2.summary.json \
---output_file=output/quac/data/predict.v0.2.span.json
+--output_file=output/quac/data/predict.v0.2.span.json \
+--answer_threshold=0.1
 
 python tool/eval_quac.py \
 --val_file=data/quac/dev-v0.2.json \
