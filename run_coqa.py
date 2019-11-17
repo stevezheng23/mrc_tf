@@ -469,7 +469,7 @@ class CoqaPipeline(object):
                 question_text = self._get_question_text(question_history, question)
                 question_history = self._get_question_history(question_history, question, answer, answer_type, is_skipped, self.num_turn)
                 
-                if answer_type != "unknown" and not is_skipped:
+                if answer_type not in ["unknown", "yes", "no"] and not is_skipped and answer_text:
                     start_position = span_start
                     orig_answer_text = self._process_found_answer(answer["input_text"], answer_text)
                 else:
