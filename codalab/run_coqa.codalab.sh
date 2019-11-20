@@ -64,11 +64,11 @@ python tool/eval_coqa.py \
 --pred-file=output/coqa/data/predict.v1.0.span.json \
 >> output/coqa/data/predict.v1.0.eval.json
 
-rm -r model/xlnet/
-rm -r output/coqa/checkpoint/
-
 cp output/coqa/data/predict.v1.0.span.json ../coqa-dev-v1.0.span.json
 cp output/coqa/data/predict.v1.0.eval.json ../coqa-dev-v1.0.eval.json
+
+cd ..
+rm -r mrc_tf
 
 end_time=`date +%s`
 echo execution time was `expr $end_time - $start_time` s.

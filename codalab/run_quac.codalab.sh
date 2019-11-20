@@ -83,10 +83,10 @@ python tool/eval_quac.py \
 --model_output=output/quac/data/predict.v0.2.span.json \
 --o=output/quac/data/predict.v0.2.eval.json
 
-rm -r model/xlnet/
-rm -r output/quac/checkpoint/
-
 cp output/quac/data/predict.v0.2.span.json ../${OUTPUTFILE}
+
+cd ..
+rm -r mrc_tf
 
 end_time=`date +%s`
 echo execution time was `expr $end_time - $start_time` s.
