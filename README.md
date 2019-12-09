@@ -120,6 +120,28 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 
 <p><i>Table 2: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
 
+### CoQA v1.0
+<p align="center"><img src="/docs/xlnet.coqa.png" width=500></p>
+<p align="center"><i>Figure 4: Illustrations of fine-tuning XLNet on CoQA v1.0 task</i></p>
+
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+|     XLNet-large   |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+
+<p><i>Table 3: The dev set performance of XLNet model finetuned on CoQA v1.0 task</i></p>
+
+### QuAC v0.2
+<p align="center"><img src="/docs/xlnet.quac.png" width=500></p>
+<p align="center"><i>Figure 5: Illustrations of fine-tuning XLNet on QuAC v0.2 task</i></p>
+
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|     XLNet-base    |  QuAC 0.2  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+|     XLNet-large   |  CoQA 0.2  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+
+<p><i>Table 3: The dev set performance of XLNet model finetuned on QuAC v0.2 task</i></p>
+
 ## Reference
 * Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. [SQuAD: 100,000+ questions for machine comprehension of text](https://arxiv.org/abs/1606.05250) [2016]
 * Pranav Rajpurkar, Robin Jia, and Percy Liang. [Know what you don’t know: unanswerable questions for SQuAD](https://arxiv.org/abs/1806.03822) [2018]
