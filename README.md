@@ -127,7 +127,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 |       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
 |:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
 |     XLNet-base    |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
-|     XLNet-large   |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+|     XLNet-large   |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx   |
 
 <p><i>Table 3: The dev set performance of XLNet model finetuned on CoQA v1.0 task</i></p>
 
@@ -135,10 +135,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 <p align="center"><img src="/docs/xlnet.quac.png" width=500></p>
 <p align="center"><i>Figure 5: Illustrations of fine-tuning XLNet on QuAC v0.2 task</i></p>
 
-|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
-|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
-|     XLNet-base    |  QuAC 0.2  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
-|     XLNet-large   |  CoQA 0.2  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
+|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Max Query Len | Learning Rate | Overall  F1 |   HEQQ   |   HEQD   |
+|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:-------------:|:-----------:|:--------:|:--------:|
+|     XLNet-base    |  QuAC 0.2  |    ~3   |     8,000     |     48     |    512     |      128      |      2e-5     |    xx.xx    |   xx.xx  |   xx.xx  |
+|     XLNet-large   |  CoQA 0.2  |    ~3   |     8,000     |     48     |    512     |      128      |      2e-5     |    71.4     |   67.9   |   12.1   |
 
 <p><i>Table 3: The dev set performance of XLNet model finetuned on QuAC v0.2 task</i></p>
 
