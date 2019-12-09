@@ -15,7 +15,7 @@ Machine reading comprehension (MRC), a task which asks machine to read a given c
 * [QuAC](https://quac.ai/) is a dataset for modeling, understanding, and participating in information seeking dialog. QuAC introduces challenges not found in existing machine comprehension datasets: its questions are often more open-ended, unanswerable, or only meaningful within the dialog context.
 
 ## Usage
-* Run train
+* Run SQuAD experiment
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 python run_squad.py \
     --spiece_model_file=model/cased_L-24_H-1024_A-16/spiece.model \
@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_squad.py \
     --export_dir=output/squad/v2.0/export \
     --max_seq_length=512 \
     --train_batch_size=12 \
-    --predict_batch_size=8 \
+    --predict_batch_size=12 \
     --num_hosts=1 \
     --num_core_per_host=4 \
     --learning_rate=3e-5 \
@@ -38,61 +38,61 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_squad.py \
     --warmup_steps=1000 \
     --save_steps=1000 \
     --do_train=true \
-    --do_predict=false \
-    --do_export=false \
-    --overwrite_data=false
-```
-* Run predict
-```bash
-CUDA_VISIBLE_DEVICES=0 python run_squad.py \
-    --spiece_model_file=model/cased_L-24_H-1024_A-16/spiece.model \
-    --model_config_path=model/cased_L-24_H-1024_A-16/xlnet_config.json \
-    --init_checkpoint=model/cased_L-24_H-1024_A-16/xlnet_model.ckpt \
-    --task_name=v2.0 \
-    --random_seed=100 \
-    --predict_tag=xxxxx \
-    --data_dir=data/squad/v2.0 \
-    --output_dir=output/squad/v2.0/data \
-    --model_dir=output/squad/v2.0/checkpoint \
-    --export_dir=output/squad/v2.0/export \
-    --max_seq_length=512 \
-    --train_batch_size=48 \
-    --predict_batch_size=32 \
-    --num_hosts=1 \
-    --num_core_per_host=1 \
-    --learning_rate=3e-5 \
-    --train_steps=8000 \
-    --warmup_steps=1000 \
-    --save_steps=1000 \
-    --do_train=false \
     --do_predict=true \
-    --do_export=false \
+    --do_export=true \
     --overwrite_data=false
 ```
-* Run export
+* Run CoQA experiment
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run_squad.py \
+CUDA_VISIBLE_DEVICES=0,1,2,3 python run_coqa.py \
     --spiece_model_file=model/cased_L-24_H-1024_A-16/spiece.model \
     --model_config_path=model/cased_L-24_H-1024_A-16/xlnet_config.json \
     --init_checkpoint=model/cased_L-24_H-1024_A-16/xlnet_model.ckpt \
-    --task_name=v2.0 \
+    --task_name=v1.0 \
     --random_seed=100 \
     --predict_tag=xxxxx \
-    --data_dir=data/squad/v2.0 \
-    --output_dir=output/squad/v2.0/data \
-    --model_dir=output/squad/v2.0/checkpoint \
-    --export_dir=output/squad/v2.0/export \
+    --data_dir=data/coqa/v1.0 \
+    --output_dir=output/coqa/v1.0/data \
+    --model_dir=output/coqa/v1.0/checkpoint \
+    --export_dir=output/coqa/v1.0/export \
     --max_seq_length=512 \
-    --train_batch_size=48 \
-    --predict_batch_size=32 \
+    --train_batch_size=12 \
+    --predict_batch_size=12 \
     --num_hosts=1 \
-    --num_core_per_host=1 \
+    --num_core_per_host=4 \
     --learning_rate=3e-5 \
     --train_steps=8000 \
     --warmup_steps=1000 \
     --save_steps=1000 \
-    --do_train=false \
-    --do_predict=false \
+    --do_train=true \
+    --do_predict=true \
+    --do_export=true \
+    --overwrite_data=false
+```
+* Run QuAC experiment
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
+    --spiece_model_file=model/cased_L-24_H-1024_A-16/spiece.model \
+    --model_config_path=model/cased_L-24_H-1024_A-16/xlnet_config.json \
+    --init_checkpoint=model/cased_L-24_H-1024_A-16/xlnet_model.ckpt \
+    --task_name=v1.0 \
+    --random_seed=100 \
+    --predict_tag=xxxxx \
+    --data_dir=data/quac/v0.2 \
+    --output_dir=output/quac/v0.2/data \
+    --model_dir=output/quac/v0.2/checkpoint \
+    --export_dir=output/quac/v0.2/export \
+    --max_seq_length=512 \
+    --train_batch_size=12 \
+    --predict_batch_size=12 \
+    --num_hosts=1 \
+    --num_core_per_host=4 \
+    --learning_rate=3e-5 \
+    --train_steps=8000 \
+    --warmup_steps=1000 \
+    --save_steps=1000 \
+    --do_train=true \
+    --do_predict=true \
     --do_export=true \
     --overwrite_data=false
 ```
