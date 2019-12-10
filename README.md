@@ -102,10 +102,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 <p align="center"><img src="/docs/xlnet.squad.v1.png" width=500></p>
 <p align="center"><i>Figure 2: Illustrations of fine-tuning XLNet on SQuAD v1.1 task</i></p>
 
-|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
-|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
-|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.90  |   92.17  |
-|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   88.61  |   94.28  |
+|     Model     | Train Data | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-------------:|:----------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|   XLNet-base  |  SQuAD 2.0 |     8,000     |     48     |    512     |      3e-5     |   85.90  |   92.17  |
+|   XLNet-large |  SQuAD 2.0 |     8,000     |     48     |    512     |      3e-5     |   88.61  |   94.28  |
 
 <p><i>Table 1: The dev set performance of XLNet model finetuned on SQuAD v1.1 task</i></p>
 
@@ -113,10 +113,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 <p align="center"><img src="/docs/xlnet.squad.v2.png" width=500></p>
 <p align="center"><i>Figure 3: Illustrations of fine-tuning XLNet on SQuAD v2.0 task</i></p>
 
-|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
-|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
-|     XLNet-base    |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   80.23  |   82.90  |
-|     XLNet-large   |  SQuAD 2.0 |    ~3   |     8,000     |     48     |    512     |      3e-5     |   85.72  |   88.36  |
+|     Model     | Train Data | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-------------:|:----------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|   XLNet-base  |  SQuAD 2.0 |     8,000     |     48     |    512     |      3e-5     |   80.23  |   82.90  |
+|   XLNet-large |  SQuAD 2.0 |     8,000     |     48     |    512     |      3e-5     |   85.72  |   88.36  |
 
 <p><i>Table 2: The dev set performance of XLNet model finetuned on SQuAD v2.0 task</i></p>
 
@@ -124,10 +124,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 <p align="center"><img src="/docs/xlnet.coqa.png" width=500></p>
 <p align="center"><i>Figure 4: Illustrations of fine-tuning XLNet on CoQA v1.0 task</i></p>
 
-|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
-|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
-|     XLNet-base    |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx  |
-|     XLNet-large   |  CoQA 1.0  |    ~3   |     8,000     |     48     |    512     |      3e-5     |   xx.xx  |   xx.xx   |
+|     Model     | Train Data | # Train Steps | Batch Size | Max Length | Learning Rate |    EM    |    F1    |
+|:-------------:|:----------:|:-------------:|:----------:|:----------:|:-------------:|:--------:|:--------:|
+|   XLNet-base  |  CoQA 1.0  |     6,000     |     48     |    512     |      2e-5     |   xx.xx  |   xx.xx  |
+|   XLNet-large |  CoQA 1.0  |     6,000     |     48     |    512     |      2e-5     |   xx.xx  |   xx.xx  |
 
 <p><i>Table 3: The dev set performance of XLNet model finetuned on CoQA v1.0 task</i></p>
 
@@ -135,10 +135,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python run_quac.py \
 <p align="center"><img src="/docs/xlnet.quac.png" width=500></p>
 <p align="center"><i>Figure 5: Illustrations of fine-tuning XLNet on QuAC v0.2 task</i></p>
 
-|       Model       | Train Data | # Epoch | # Train Steps | Batch Size | Max Length | Max Query Len | Learning Rate | Overall  F1 |   HEQQ   |   HEQD   |
-|:-----------------:|:----------:|:-------:|:-------------:|:----------:|:----------:|:-------------:|:-------------:|:-----------:|:--------:|:--------:|
-|     XLNet-base    |  QuAC 0.2  |    ~3   |     8,000     |     48     |    512     |      128      |      2e-5     |    xx.xx    |   xx.xx  |   xx.xx  |
-|     XLNet-large   |  CoQA 0.2  |    ~3   |     8,000     |     48     |    512     |      128      |      2e-5     |    71.4     |   67.9   |   12.1   |
+|     Model     | Train Data | # Train Steps | Batch Size | Max Length | Max Query Len | Learning Rate | Overall F1 |  HEQQ  |  HEQD  |
+|:-------------:|:----------:|:-------------:|:----------:|:----------:|:-------------:|:-------------:|:----------:|:------:|:------:|
+|   XLNet-base  |  QuAC 0.2  |     8,000     |     48     |    512     |      128      |      2e-5     |    xx.xx   |  xx.xx |  xx.xx |
+|   XLNet-large |  QuAC 0.2  |     8,000     |     48     |    512     |      128      |      2e-5     |    71.4    |  67.9  |  12.1  |
 
 <p><i>Table 3: The dev set performance of XLNet model finetuned on QuAC v0.2 task</i></p>
 
